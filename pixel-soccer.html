@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mo Salah vs Alisson - Pixel Soccer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            font-family: 'Press Start 2P', monospace;
+            overflow: hidden;
+        }
+
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        .game-container {
+            text-align: center;
+        }
+
+        h1 {
+            color: #c8102e;
+            font-size: 24px;
+            margin-bottom: 10px;
+            text-shadow: 3px 3px 0 #000;
+            font-family: 'Press Start 2P', monospace;
+        }
+
+        .score-board {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-bottom: 10px;
+            font-family: 'Press Start 2P', monospace;
+        }
+
+        .score {
+            color: #fff;
+            font-size: 16px;
+        }
+
+        .goals { color: #4ade80; }
+        .saves { color: #f87171; }
+
+        canvas {
+            border: 4px solid #c8102e;
+            border-radius: 8px;
+            box-shadow: 0 0 30px rgba(200, 16, 46, 0.5);
+            image-rendering: pixelated;
+        }
+
+        .instructions {
+            color: #888;
+            font-size: 10px;
+            margin-top: 15px;
+            font-family: 'Press Start 2P', monospace;
+            line-height: 1.8;
+        }
+
+        .message {
+            color: #ffd700;
+            font-size: 14px;
+            margin-top: 10px;
+            font-family: 'Press Start 2P', monospace;
+            min-height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>MO SALAH vs ALISSON</h1>
+        <div class="score-board">
+            <span class="score goals">GOALS: <span id="goals">0</span></span>
+            <span class="score saves">SAVES: <span id="saves">0</span></span>
+        </div>
+        <canvas id="gameCanvas" width="800" height="500"></canvas>
+        <div class="message" id="message">Press SPACE to shoot!</div>
+        <div class="instructions">
+            ARROW KEYS / WASD - Move Salah<br>
+            SPACE - Shoot the ball<br>
+            R - Reset position
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Game state
+        let goals = 0;
+        let saves = 0;
+        let gameState = 'playing'; // playing, shooting, celebrating, saved
+        let messageTimer = 0;
+
+        // Salah (player)
+        const salah = {
+            x: 200,
+            y: 250,
+            width: 32,
+            height: 48,
+            speed: 4,
+            hasBall: true,
+            kickFrame: 0
+        };
+
+        // Ball
+        const ball = {
+            x: 220,
+            y: 270,
+            radius: 8,
+            velocityX: 0,
+            velocityY: 0,
+            active: false,
+            targetX: 0,
+            targetY: 0
+        };
+
+        // Alisson (goalkeeper)
+        const alisson = {
+            x: 700,
+            y: 250,
+            width: 36,
+            height: 52,
+            targetY: 250,
+            speed: 3,
+            diving: false,
+            diveDirection: 0,
+            diveFrame: 0
+        };
+
+        // Goal dimensions
+        const goal = {
+            x: 740,
+            y: 150,
+            width: 50,
+            height: 200,
+            postWidth: 8
+        };
+
+        // Input handling
+        const keys = {};
+        document.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key === ' ' && gameState === 'playing' && salah.hasBall) {
+                shootBall();
+            }
+            if (e.key.toLowerCase() === 'r') {
+                resetPositions();
+            }
+            e.preventDefault();
+        });
+        document.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        function shootBall() {
+            gameState = 'shooting';
+            salah.hasBall = false;
+            salah.kickFrame = 10;
+
+            // Calculate shot direction with some randomness
+            const shotPower = 12 + Math.random() * 4;
+            const aimVariance = (Math.random() - 0.5) * 60;
+
+            ball.targetY = goal.y + goal.height / 2 + aimVariance;
+            ball.active = true;
+            ball.velocityX = shotPower;
+            ball.velocityY = (ball.targetY - ball.y) / ((goal.x - ball.x) / shotPower);
+
+            // Alisson reacts
+            setTimeout(() => {
+                if (gameState === 'shooting') {
+                    const predictedY = ball.y + ball.velocityY * ((alisson.x - ball.x) / ball.velocityX);
+                    alisson.targetY = predictedY;
+                    alisson.diving = true;
+                    alisson.diveDirection = predictedY > alisson.y ? 1 : -1;
+                }
+            }, 100 + Math.random() * 150);
+        }
+
+        function resetPositions() {
+            salah.x = 200;
+            salah.y = 250;
+            salah.hasBall = true;
+            salah.kickFrame = 0;
+            ball.x = 220;
+            ball.y = 270;
+            ball.active = false;
+            ball.velocityX = 0;
+            ball.velocityY = 0;
+            alisson.x = 700;
+            alisson.y = 250;
+            alisson.diving = false;
+            alisson.diveFrame = 0;
+            gameState = 'playing';
+            document.getElementById('message').textContent = 'Press SPACE to shoot!';
+        }
+
+        function drawField() {
+            // Grass
+            ctx.fillStyle = '#2d5a27';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Grass stripes
+            ctx.fillStyle = '#347a2c';
+            for (let i = 0; i < canvas.width; i += 60) {
+                ctx.fillRect(i, 0, 30, canvas.height);
+            }
+
+            // Penalty box
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(600, 100, 200, 300);
+
+            // Goal area
+            ctx.strokeRect(700, 175, 100, 150);
+
+            // Penalty spot
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(650, 250, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Goal
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(goal.x, goal.y, goal.postWidth, goal.height); // Left post
+            ctx.fillRect(goal.x, goal.y, goal.width, goal.postWidth); // Top bar
+            ctx.fillRect(goal.x, goal.y + goal.height - goal.postWidth, goal.width, goal.postWidth); // Bottom bar
+
+            // Goal net
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 1;
+            for (let i = goal.y; i < goal.y + goal.height; i += 15) {
+                ctx.beginPath();
+                ctx.moveTo(goal.x + goal.postWidth, i);
+                ctx.lineTo(goal.x + goal.width, i);
+                ctx.stroke();
+            }
+            for (let i = goal.x + goal.postWidth; i < goal.x + goal.width; i += 15) {
+                ctx.beginPath();
+                ctx.moveTo(i, goal.y);
+                ctx.lineTo(i, goal.y + goal.height);
+                ctx.stroke();
+            }
+        }
+
+        function drawPixelCharacter(x, y, width, height, isAlisson, diving = false, diveDir = 0) {
+            const pixelSize = 4;
+
+            if (isAlisson) {
+                // Alisson in yellow/green goalkeeper kit
+                const skinColor = '#d4a574';
+                const hairColor = '#4a3728';
+                const shirtColor = '#32CD32'; // Lime green
+                const shortsColor = '#228B22';
+                const glovesColor = '#FFD700';
+
+                if (diving) {
+                    // Diving animation
+                    const diveOffset = Math.min(alisson.diveFrame * 3, 40) * diveDir;
+                    y += diveOffset;
+
+                    // Horizontal diving pose
+                    // Body
+                    ctx.fillStyle = shirtColor;
+                    ctx.fillRect(x - 8, y + 16, 40, 16);
+
+                    // Arms stretched
+                    ctx.fillStyle = shirtColor;
+                    ctx.fillRect(x - 16, y + 8, 16, 12);
+                    ctx.fillRect(x + 32, y + 8, 16, 12);
+
+                    // Gloves
+                    ctx.fillStyle = glovesColor;
+                    ctx.fillRect(x - 24, y + 8, 12, 16);
+                    ctx.fillRect(x + 44, y + 8, 12, 16);
+
+                    // Head
+                    ctx.fillStyle = skinColor;
+                    ctx.fillRect(x + 8, y, 20, 20);
+
+                    // Hair
+                    ctx.fillStyle = hairColor;
+                    ctx.fillRect(x + 8, y, 20, 8);
+
+                    // Legs
+                    ctx.fillStyle = shortsColor;
+                    ctx.fillRect(x, y + 32, 32, 8);
+                } else {
+                    // Standing pose
+                    // Head
+                    ctx.fillStyle = skinColor;
+                    ctx.fillRect(x + 8, y, 20, 20);
+
+                    // Hair
+                    ctx.fillStyle = hairColor;
+                    ctx.fillRect(x + 8, y, 20, 8);
+
+                    // Eyes
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(x + 12, y + 10, 4, 4);
+                    ctx.fillRect(x + 20, y + 10, 4, 4);
+
+                    // Body
+                    ctx.fillStyle = shirtColor;
+                    ctx.fillRect(x + 4, y + 20, 28, 20);
+
+                    // Number 1
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(x + 16, y + 24, 4, 12);
+
+                    // Arms with gloves
+                    ctx.fillStyle = shirtColor;
+                    ctx.fillRect(x - 4, y + 20, 8, 16);
+                    ctx.fillRect(x + 32, y + 20, 8, 16);
+
+                    ctx.fillStyle = glovesColor;
+                    ctx.fillRect(x - 4, y + 32, 10, 10);
+                    ctx.fillRect(x + 30, y + 32, 10, 10);
+
+                    // Shorts
+                    ctx.fillStyle = shortsColor;
+                    ctx.fillRect(x + 6, y + 40, 24, 10);
+
+                    // Legs
+                    ctx.fillStyle = skinColor;
+                    ctx.fillRect(x + 8, y + 50, 8, 12);
+                    ctx.fillRect(x + 20, y + 50, 8, 12);
+
+                    // Boots
+                    ctx.fillStyle = '#111';
+                    ctx.fillRect(x + 6, y + 60, 12, 6);
+                    ctx.fillRect(x + 18, y + 60, 12, 6);
+                }
+            } else {
+                // Mo Salah in Liverpool red
+                const skinColor = '#c68642';
+                const hairColor = '#1a1a1a';
+                const shirtColor = '#c8102e';
+                const shortsColor = '#c8102e';
+
+                // Curly hair (Salah's signature)
+                ctx.fillStyle = hairColor;
+                ctx.fillRect(x + 4, y - 4, 24, 12);
+                ctx.fillRect(x, y, 8, 8);
+                ctx.fillRect(x + 24, y, 8, 8);
+                ctx.fillRect(x + 2, y + 6, 6, 8);
+                ctx.fillRect(x + 24, y + 6, 6, 8);
+
+                // Head
+                ctx.fillStyle = skinColor;
+                ctx.fillRect(x + 6, y + 4, 20, 18);
+
+                // Eyes
+                ctx.fillStyle = '#000';
+                ctx.fillRect(x + 10, y + 10, 4, 4);
+                ctx.fillRect(x + 18, y + 10, 4, 4);
+
+                // Beard
+                ctx.fillStyle = hairColor;
+                ctx.fillRect(x + 6, y + 16, 20, 6);
+                ctx.fillRect(x + 10, y + 14, 12, 4);
+
+                // Body (Liverpool shirt)
+                ctx.fillStyle = shirtColor;
+                ctx.fillRect(x + 4, y + 22, 24, 18);
+
+                // Number 11
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(x + 10, y + 26, 3, 10);
+                ctx.fillRect(x + 18, y + 26, 3, 10);
+
+                // Arms
+                ctx.fillStyle = shirtColor;
+                ctx.fillRect(x - 2, y + 22, 8, 14);
+                ctx.fillRect(x + 26, y + 22, 8, 14);
+
+                // Hands
+                ctx.fillStyle = skinColor;
+                ctx.fillRect(x - 2, y + 34, 6, 6);
+                ctx.fillRect(x + 28, y + 34, 6, 6);
+
+                // Shorts
+                ctx.fillStyle = shortsColor;
+                ctx.fillRect(x + 6, y + 40, 20, 10);
+
+                // Legs
+                ctx.fillStyle = skinColor;
+                ctx.fillRect(x + 8, y + 50, 6, 10);
+                ctx.fillRect(x + 18, y + 50, 6, 10);
+
+                // Boots (Nike style)
+                ctx.fillStyle = '#f97316';
+                ctx.fillRect(x + 6, y + 58, 10, 6);
+                ctx.fillRect(x + 16, y + 58, 10, 6);
+
+                // Kicking animation
+                if (salah.kickFrame > 0) {
+                    ctx.fillStyle = skinColor;
+                    ctx.fillRect(x + 24, y + 48, 12, 6);
+                    ctx.fillStyle = '#f97316';
+                    ctx.fillRect(x + 32, y + 48, 10, 6);
+                }
+            }
+        }
+
+        function drawBall() {
+            // Ball shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(ball.x + 2, ball.y + ball.radius + 4, ball.radius, ball.radius / 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Ball
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Ball pattern (pentagon shapes)
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(ball.x - 2, ball.y - 2, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(ball.x + 4, ball.y + 3, 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function updateGame() {
+            // Move Salah
+            if (gameState === 'playing') {
+                if ((keys['arrowleft'] || keys['a']) && salah.x > 50) salah.x -= salah.speed;
+                if ((keys['arrowright'] || keys['d']) && salah.x < 600) salah.x += salah.speed;
+                if ((keys['arrowup'] || keys['w']) && salah.y > 50) salah.y -= salah.speed;
+                if ((keys['arrowdown'] || keys['s']) && salah.y < 420) salah.y += salah.speed;
+
+                // Ball follows Salah
+                if (salah.hasBall) {
+                    ball.x = salah.x + 20;
+                    ball.y = salah.y + 45;
+                }
+            }
+
+            // Update ball
+            if (ball.active) {
+                ball.x += ball.velocityX;
+                ball.y += ball.velocityY;
+
+                // Check for goal
+                if (ball.x >= goal.x && ball.y > goal.y + goal.postWidth && ball.y < goal.y + goal.height - goal.postWidth) {
+                    // GOAL!
+                    if (gameState === 'shooting') {
+                        goals++;
+                        document.getElementById('goals').textContent = goals;
+                        document.getElementById('message').textContent = 'GOAL! The Egyptian King strikes!';
+                        gameState = 'celebrating';
+                        setTimeout(resetPositions, 2000);
+                    }
+                }
+
+                // Check for save (ball hits Alisson)
+                if (ball.x > alisson.x - 20 && ball.x < alisson.x + alisson.width + 20 &&
+                    ball.y > alisson.y - 10 && ball.y < alisson.y + alisson.height + 20) {
+                    if (gameState === 'shooting') {
+                        saves++;
+                        document.getElementById('saves').textContent = saves;
+                        document.getElementById('message').textContent = 'SAVED by Alisson!';
+                        gameState = 'saved';
+                        ball.velocityX = -ball.velocityX * 0.5;
+                        ball.velocityY = (Math.random() - 0.5) * 5;
+                        setTimeout(resetPositions, 2000);
+                    }
+                }
+
+                // Ball out of bounds
+                if (ball.x > canvas.width || ball.y < 0 || ball.y > canvas.height) {
+                    if (gameState === 'shooting') {
+                        document.getElementById('message').textContent = 'Missed! Try again!';
+                        setTimeout(resetPositions, 1500);
+                        gameState = 'saved';
+                    }
+                }
+
+                // Slow down ball
+                ball.velocityX *= 0.995;
+                ball.velocityY *= 0.995;
+            }
+
+            // Update Alisson
+            if (alisson.diving) {
+                alisson.diveFrame++;
+                const targetY = Math.max(goal.y, Math.min(goal.y + goal.height - alisson.height, alisson.targetY));
+                const diff = targetY - alisson.y;
+                alisson.y += diff * 0.15;
+            } else if (gameState === 'playing') {
+                // Track ball position when not diving
+                const targetY = ball.y - alisson.height / 2;
+                const clampedTarget = Math.max(goal.y, Math.min(goal.y + goal.height - alisson.height, targetY));
+                const diff = clampedTarget - alisson.y;
+                alisson.y += diff * 0.03;
+            }
+
+            // Update kick animation
+            if (salah.kickFrame > 0) salah.kickFrame--;
+        }
+
+        function drawCelebration() {
+            if (gameState === 'celebrating') {
+                ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Confetti
+                for (let i = 0; i < 20; i++) {
+                    ctx.fillStyle = ['#c8102e', '#ffd700', '#fff'][Math.floor(Math.random() * 3)];
+                    ctx.fillRect(
+                        Math.random() * canvas.width,
+                        Math.random() * canvas.height,
+                        8,
+                        8
+                    );
+                }
+            }
+        }
+
+        function gameLoop() {
+            updateGame();
+
+            // Clear and draw
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawField();
+            drawPixelCharacter(salah.x, salah.y, salah.width, salah.height, false);
+            drawPixelCharacter(alisson.x, alisson.y, alisson.width, alisson.height, true, alisson.diving, alisson.diveDirection);
+            drawBall();
+            drawCelebration();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start game
+        gameLoop();
+    </script>
+</body>
+</html>
