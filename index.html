@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mo Salah vs Alisson - Pixel Soccer</title>
+    <title>Mo Salah vs Liverpool - Pixel Soccer</title>
     <style>
         * {
             margin: 0;
@@ -136,17 +136,17 @@
 </head>
 <body>
     <div class="game-container">
-        <h1>MO SALAH vs ALISSON</h1>
+        <h1>MO SALAH vs LIVERPOOL</h1>
         <div class="score-board">
             <span class="score goals">GOALS: <span id="goals">0</span></span>
             <span class="score saves">SAVES: <span id="saves">0</span></span>
         </div>
         <canvas id="gameCanvas" width="800" height="500"></canvas>
-        <div class="message" id="message">Press SPACE to shoot!</div>
+        <div class="message" id="message">Hold SHOOT to power up!</div>
         <div class="instructions">
             ARROW KEYS / WASD - Move Salah<br>
-            SPACE - Shoot the ball<br>
-            R - Reset position
+            HOLD SPACE - Charge shot (careful, too much power = over the bar!)<br>
+            Avoid Konate's tackle!
         </div>
         <div class="mobile-controls">
             <div class="joystick-area" id="joystick">
@@ -174,7 +174,9 @@
             height: 48,
             speed: 4,
             hasBall: true,
-            kickFrame: 0
+            kickFrame: 0,
+            celebrating: false,
+            celebrateFrame: 0
         };
 
         // Ball
@@ -202,6 +204,60 @@
             diveFrame: 0
         };
 
+        // Konate (defender)
+        const konate = {
+            x: 500,
+            y: 250,
+            width: 32,
+            height: 52,
+            speed: 3.2,
+            tackleRange: 40
+        };
+
+        // Shot power
+        let shotCharging = false;
+        let shotPower = 0;
+        let maxShotPower = 100;
+        let chargeStartTime = 0;
+
+        // Commentary arrays
+        const goalMessages = [
+            'GOAL! The Egyptian King strikes!',
+            'SALAAAAH! What a finish!',
+            'He makes it look so easy!',
+            'Running down the wing! SALAH!',
+            'The Pharaoh has spoken!',
+            'Unstoppable from Mo Salah!',
+            'Clinical finish! Pure class!',
+            'Alisson had no chance!'
+        ];
+        const saveMessages = [
+            'SAVED by Alisson!',
+            'Great stop from Alisson!',
+            'The Brazilian says NO!',
+            'Alisson stands tall!',
+            'Denied by the keeper!',
+            'What a save! Alisson!'
+        ];
+        const missMessages = [
+            'Over the bar! Too much power!',
+            'Blazed it over! So close!',
+            'Into the stands! Try again!',
+            'Skied it! The crowd groans!',
+            'Way too much on that one!'
+        ];
+        const tackleMessages = [
+            'TACKLED by Konate!',
+            'Konate wins the ball!',
+            'Strong challenge from Konate!',
+            'Dispossessed! Great defending!',
+            'Konate reads it perfectly!'
+        ];
+
+        function randomMessage(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
         // Goal dimensions
         const goal = {
             x: 740,
@@ -215,8 +271,8 @@
         const keys = {};
         document.addEventListener('keydown', (e) => {
             keys[e.key.toLowerCase()] = true;
-            if (e.key === ' ' && gameState === 'playing' && salah.hasBall) {
-                shootBall();
+            if (e.key === ' ' && gameState === 'playing' && salah.hasBall && !shotCharging) {
+                startCharging();
             }
             if (e.key.toLowerCase() === 'r') {
                 resetPositions();
@@ -225,7 +281,24 @@
         });
         document.addEventListener('keyup', (e) => {
             keys[e.key.toLowerCase()] = false;
+            if (e.key === ' ' && shotCharging) {
+                releaseShot();
+            }
         });
+
+        function startCharging() {
+            shotCharging = true;
+            chargeStartTime = Date.now();
+            shotPower = 0;
+        }
+
+        function releaseShot() {
+            if (shotCharging && gameState === 'playing' && salah.hasBall) {
+                shootBall(shotPower);
+            }
+            shotCharging = false;
+            shotPower = 0;
+        }
 
         // Mobile touch controls
         const joystick = document.getElementById('joystick');
@@ -279,29 +352,43 @@
             }
         });
 
-        // Shoot button
+        // Shoot button (hold to charge)
         shootBtn.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            if (gameState === 'playing' && salah.hasBall) {
-                shootBall();
+            if (gameState === 'playing' && salah.hasBall && !shotCharging) {
+                startCharging();
+            }
+        });
+        shootBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            if (shotCharging) {
+                releaseShot();
             }
         });
 
-        function shootBall() {
+        function shootBall(power) {
             gameState = 'shooting';
             salah.hasBall = false;
             salah.kickFrame = 10;
 
-            // Calculate shot direction with some randomness
-            const shotPower = 12 + Math.random() * 4;
+            // Power affects speed and accuracy
+            const powerPercent = power / maxShotPower;
+            const basePower = 10 + powerPercent * 8; // 10-18 based on charge
             const aimVariance = (Math.random() - 0.5) * 60;
 
-            ball.targetY = goal.y + goal.height / 2 + aimVariance;
-            ball.active = true;
-            ball.velocityX = shotPower;
-            ball.velocityY = (ball.targetY - ball.y) / ((goal.x - ball.x) / shotPower);
+            // High power = risk of going over the bar
+            let goingOver = false;
+            if (powerPercent > 0.75 && Math.random() < (powerPercent - 0.5) * 0.8) {
+                goingOver = true;
+            }
 
-            // Alisson reacts
+            ball.targetY = goingOver ? goal.y - 50 - Math.random() * 100 : goal.y + goal.height / 2 + aimVariance;
+            ball.active = true;
+            ball.velocityX = basePower;
+            ball.velocityY = (ball.targetY - ball.y) / ((goal.x - ball.x) / basePower);
+
+            // Alisson reacts - harder to save powerful shots
+            const reactionDelay = 100 + Math.random() * 150 + (powerPercent * 50);
             setTimeout(() => {
                 if (gameState === 'shooting') {
                     const predictedY = ball.y + ball.velocityY * ((alisson.x - ball.x) / ball.velocityX);
@@ -309,7 +396,7 @@
                     alisson.diving = true;
                     alisson.diveDirection = predictedY > alisson.y ? 1 : -1;
                 }
-            }, 100 + Math.random() * 150);
+            }, reactionDelay);
         }
 
         function resetPositions() {
@@ -317,6 +404,8 @@
             salah.y = 250;
             salah.hasBall = true;
             salah.kickFrame = 0;
+            salah.celebrating = false;
+            salah.celebrateFrame = 0;
             ball.x = 220;
             ball.y = 270;
             ball.active = false;
@@ -326,8 +415,12 @@
             alisson.y = 250;
             alisson.diving = false;
             alisson.diveFrame = 0;
+            konate.x = 500;
+            konate.y = 250;
+            shotCharging = false;
+            shotPower = 0;
             gameState = 'playing';
-            document.getElementById('message').textContent = 'Tap SHOOT to score!';
+            document.getElementById('message').textContent = 'Hold SHOOT to power up!';
         }
 
         function drawField() {
@@ -535,6 +628,119 @@
                     ctx.fillStyle = '#f97316';
                     ctx.fillRect(x + 32, y + 48, 10, 6);
                 }
+
+                // Celebration animation (arms up, jumping)
+                if (salah.celebrating) {
+                    const jumpOffset = Math.sin(salah.celebrateFrame * 0.3) * 10;
+                    const armWave = Math.sin(salah.celebrateFrame * 0.5) * 8;
+
+                    // Clear the normal arms area and redraw raised arms
+                    ctx.fillStyle = shirtColor;
+                    ctx.fillRect(x - 6, y + 10 - jumpOffset + armWave, 10, 16);
+                    ctx.fillRect(x + 28, y + 10 - jumpOffset - armWave, 10, 16);
+
+                    // Hands up
+                    ctx.fillStyle = skinColor;
+                    ctx.fillRect(x - 6, y + 4 - jumpOffset + armWave, 8, 8);
+                    ctx.fillRect(x + 30, y + 4 - jumpOffset - armWave, 8, 8);
+                }
+            }
+        }
+
+        function drawKonate(x, y) {
+            // Konate in Liverpool red (defender)
+            const skinColor = '#3d2314';
+            const hairColor = '#1a1a1a';
+            const shirtColor = '#c8102e';
+            const shortsColor = '#c8102e';
+
+            // Bald/short hair
+            ctx.fillStyle = hairColor;
+            ctx.fillRect(x + 6, y - 2, 20, 6);
+
+            // Head
+            ctx.fillStyle = skinColor;
+            ctx.fillRect(x + 6, y + 2, 20, 20);
+
+            // Eyes
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(x + 10, y + 10, 5, 4);
+            ctx.fillRect(x + 17, y + 10, 5, 4);
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x + 12, y + 11, 2, 2);
+            ctx.fillRect(x + 19, y + 11, 2, 2);
+
+            // Body (Liverpool shirt - taller/bulkier than Salah)
+            ctx.fillStyle = shirtColor;
+            ctx.fillRect(x + 2, y + 22, 28, 22);
+
+            // Number 5
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(x + 12, y + 26, 8, 3);
+            ctx.fillRect(x + 12, y + 26, 3, 14);
+            ctx.fillRect(x + 12, y + 32, 8, 3);
+            ctx.fillRect(x + 17, y + 32, 3, 8);
+            ctx.fillRect(x + 12, y + 37, 8, 3);
+
+            // Arms
+            ctx.fillStyle = shirtColor;
+            ctx.fillRect(x - 4, y + 22, 8, 16);
+            ctx.fillRect(x + 28, y + 22, 8, 16);
+
+            // Hands
+            ctx.fillStyle = skinColor;
+            ctx.fillRect(x - 4, y + 36, 6, 6);
+            ctx.fillRect(x + 30, y + 36, 6, 6);
+
+            // Shorts
+            ctx.fillStyle = shortsColor;
+            ctx.fillRect(x + 4, y + 44, 24, 12);
+
+            // Legs (longer)
+            ctx.fillStyle = skinColor;
+            ctx.fillRect(x + 6, y + 56, 8, 14);
+            ctx.fillRect(x + 18, y + 56, 8, 14);
+
+            // Boots
+            ctx.fillStyle = '#111';
+            ctx.fillRect(x + 4, y + 68, 12, 6);
+            ctx.fillRect(x + 16, y + 68, 12, 6);
+        }
+
+        function drawPowerMeter() {
+            if (shotCharging && gameState === 'playing') {
+                const meterWidth = 100;
+                const meterHeight = 12;
+                const x = salah.x - 20;
+                const y = salah.y - 30;
+                const fillWidth = (shotPower / maxShotPower) * meterWidth;
+
+                // Background
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(x - 2, y - 2, meterWidth + 4, meterHeight + 4);
+
+                // Power bar (green to yellow to red)
+                const powerPercent = shotPower / maxShotPower;
+                let color;
+                if (powerPercent < 0.5) {
+                    color = '#4ade80';
+                } else if (powerPercent < 0.75) {
+                    color = '#fbbf24';
+                } else {
+                    color = '#ef4444';
+                }
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, fillWidth, meterHeight);
+
+                // Border
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, meterWidth, meterHeight);
+
+                // "POWER" text
+                ctx.fillStyle = '#fff';
+                ctx.font = '8px monospace';
+                ctx.fillText('POWER', x + 30, y - 5);
             }
         }
 
@@ -562,6 +768,11 @@
         }
 
         function updateGame() {
+            // Update shot power while charging
+            if (shotCharging && gameState === 'playing') {
+                shotPower = Math.min(maxShotPower, (Date.now() - chargeStartTime) / 10);
+            }
+
             // Move Salah
             if (gameState === 'playing') {
                 // Keyboard controls
@@ -583,6 +794,24 @@
                     ball.x = salah.x + 20;
                     ball.y = salah.y + 45;
                 }
+
+                // Konate chases Salah
+                const dx = salah.x - konate.x;
+                const dy = salah.y - konate.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > 5) {
+                    konate.x += (dx / dist) * konate.speed;
+                    konate.y += (dy / dist) * konate.speed;
+                }
+
+                // Check for tackle
+                if (salah.hasBall && dist < konate.tackleRange) {
+                    // Tackled!
+                    salah.hasBall = false;
+                    document.getElementById('message').textContent = randomMessage(tackleMessages);
+                    gameState = 'tackled';
+                    setTimeout(resetPositions, 1500);
+                }
             }
 
             // Update ball
@@ -596,9 +825,11 @@
                     if (gameState === 'shooting') {
                         goals++;
                         document.getElementById('goals').textContent = goals;
-                        document.getElementById('message').textContent = 'GOAL! The Egyptian King strikes!';
+                        document.getElementById('message').textContent = randomMessage(goalMessages);
                         gameState = 'celebrating';
-                        setTimeout(resetPositions, 2000);
+                        salah.celebrating = true;
+                        salah.celebrateFrame = 0;
+                        setTimeout(resetPositions, 2500);
                     }
                 }
 
@@ -608,7 +839,7 @@
                     if (gameState === 'shooting') {
                         saves++;
                         document.getElementById('saves').textContent = saves;
-                        document.getElementById('message').textContent = 'SAVED by Alisson!';
+                        document.getElementById('message').textContent = randomMessage(saveMessages);
                         gameState = 'saved';
                         ball.velocityX = -ball.velocityX * 0.5;
                         ball.velocityY = (Math.random() - 0.5) * 5;
@@ -616,10 +847,10 @@
                     }
                 }
 
-                // Ball out of bounds
+                // Ball out of bounds (over the bar)
                 if (ball.x > canvas.width || ball.y < 0 || ball.y > canvas.height) {
                     if (gameState === 'shooting') {
-                        document.getElementById('message').textContent = 'Missed! Try again!';
+                        document.getElementById('message').textContent = randomMessage(missMessages);
                         setTimeout(resetPositions, 1500);
                         gameState = 'saved';
                     }
@@ -646,6 +877,11 @@
 
             // Update kick animation
             if (salah.kickFrame > 0) salah.kickFrame--;
+
+            // Update celebration
+            if (salah.celebrating) {
+                salah.celebrateFrame++;
+            }
         }
 
         function drawCelebration() {
@@ -672,9 +908,11 @@
             // Clear and draw
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             drawField();
+            drawKonate(konate.x, konate.y);
             drawPixelCharacter(salah.x, salah.y, salah.width, salah.height, false);
             drawPixelCharacter(alisson.x, alisson.y, alisson.width, alisson.height, true, alisson.diving, alisson.diveDirection);
             drawBall();
+            drawPowerMeter();
             drawCelebration();
 
             requestAnimationFrame(gameLoop);
