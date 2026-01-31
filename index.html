@@ -371,28 +371,65 @@
             return arr[Math.floor(Math.random() * arr.length)];
         }
 
-        // Leaderboard
-        function getLeaderboard() {
-            const data = localStorage.getItem('salahLeaderboard');
-            return data ? JSON.parse(data) : [];
+        // Global Leaderboard using Dreamlo
+        const DREAMLO_PRIVATE = 'plQDO2UdfEytCaRU9D0M3QjzvR1a9VJkaQBeFOXWkNUg';
+        const DREAMLO_PUBLIC = 'plQDO2UdfEytCaRU9D0M3Q';
+        let globalLeaderboard = [];
+
+        async function fetchLeaderboard() {
+            try {
+                const response = await fetch(`https://www.dreamlo.com/lb/${DREAMLO_PUBLIC}/json`);
+                const data = await response.json();
+                if (data.dreamlo && data.dreamlo.leaderboard && data.dreamlo.leaderboard.entry) {
+                    let entries = data.dreamlo.leaderboard.entry;
+                    // Handle single entry (not array)
+                    if (!Array.isArray(entries)) entries = [entries];
+                    globalLeaderboard = entries.map(e => ({
+                        name: e.name,
+                        score: parseInt(e.score)
+                    }));
+                } else {
+                    globalLeaderboard = [];
+                }
+            } catch (err) {
+                console.log('Leaderboard fetch error:', err);
+                // Fallback to local storage
+                const data = localStorage.getItem('salahLeaderboard');
+                globalLeaderboard = data ? JSON.parse(data) : [];
+            }
+            return globalLeaderboard;
         }
 
-        function saveScore(name, score) {
-            const leaderboard = getLeaderboard();
+        async function saveScore(name, score) {
+            // Save to local storage as backup
+            const local = localStorage.getItem('salahLeaderboard');
+            const leaderboard = local ? JSON.parse(local) : [];
             leaderboard.push({ name, score, date: Date.now() });
             leaderboard.sort((a, b) => b.score - a.score);
             localStorage.setItem('salahLeaderboard', JSON.stringify(leaderboard.slice(0, 50)));
+
+            // Save to global Dreamlo leaderboard
+            try {
+                const safeName = encodeURIComponent(name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12) || 'PLAYER');
+                await fetch(`https://www.dreamlo.com/lb/${DREAMLO_PRIVATE}/add/${safeName}/${score}`);
+                console.log('Score saved globally!');
+            } catch (err) {
+                console.log('Error saving to global leaderboard:', err);
+            }
         }
 
-        function displayLeaderboard(elementId) {
-            const leaderboard = getLeaderboard();
+        async function displayLeaderboard(elementId) {
             const container = document.getElementById(elementId);
             if (!container) return;
 
-            let html = '<h3>LEADERBOARD</h3>';
-            const top10 = leaderboard.slice(0, 10);
+            container.innerHTML = '<h3>GLOBAL LEADERBOARD</h3><p style="color:#888;font-size:10px;">Loading...</p>';
+
+            await fetchLeaderboard();
+
+            let html = '<h3>GLOBAL LEADERBOARD</h3>';
+            const top10 = globalLeaderboard.slice(0, 10);
             if (top10.length === 0) {
-                html += '<p style="color:#888;font-size:10px;">No scores yet!</p>';
+                html += '<p style="color:#888;font-size:10px;">No scores yet! Be the first!</p>';
             } else {
                 top10.forEach((entry, i) => {
                     let cls = '';
@@ -645,15 +682,17 @@
             }
         }
 
-        function endGame(completed) {
+        async function endGame(completed) {
             gameState = 'gameOver';
-            saveScore(playerName, totalScore);
             document.getElementById('finalScore').textContent = totalScore;
             document.getElementById('gameOverMsg').textContent = completed
                 ? 'INCREDIBLE! You completed all levels!'
                 : `You reached Level ${currentLevel + 1}`;
-            displayLeaderboard('gameOverLeaderboard');
             document.getElementById('gameOverOverlay').classList.remove('hidden');
+
+            // Save score and refresh leaderboard
+            await saveScore(playerName, totalScore);
+            await displayLeaderboard('gameOverLeaderboard');
         }
 
         function handleGoal() {
