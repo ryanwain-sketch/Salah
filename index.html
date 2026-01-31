@@ -278,17 +278,17 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
-        // Level configurations
+        // Level configurations - easier start, gradual difficulty
         const levels = [
-            { name: "Warm Up", target: 2, defenders: [], keeperSpeed: 0.02, desc: "Just you and Alisson. Get warmed up!" },
-            { name: "Konate Arrives", target: 2, defenders: ['konate'], keeperSpeed: 0.025, desc: "Konate joins the defense!" },
-            { name: "Van Dijk!", target: 3, defenders: ['konate', 'vandijk'], keeperSpeed: 0.03, desc: "The big man Van Dijk is here!" },
-            { name: "Full Defense", target: 3, defenders: ['konate', 'vandijk', 'robertson'], keeperSpeed: 0.035, desc: "Robertson adds to the pressure!" },
-            { name: "FREE KICK!", target: 1, defenders: [], keeperSpeed: 0.04, freeKick: true, desc: "Bonus Round! Bend it like Salah!" },
-            { name: "Counter Attack", target: 4, defenders: ['konate', 'vandijk'], keeperSpeed: 0.04, defenderSpeed: 3.5, desc: "Faster defenders! Think quick!" },
-            { name: "The Gauntlet", target: 4, defenders: ['konate', 'vandijk', 'robertson', 'alexander-arnold'], keeperSpeed: 0.045, defenderSpeed: 3.8, desc: "All four defenders! Can you do it?" },
-            { name: "FINAL FREE KICK", target: 1, defenders: [], keeperSpeed: 0.05, freeKick: true, wallSize: 5, desc: "Ultimate free kick! Big wall!" },
-            { name: "Legend Mode", target: 5, defenders: ['konate', 'vandijk', 'robertson', 'alexander-arnold'], keeperSpeed: 0.05, defenderSpeed: 4.2, desc: "Only legends complete this!" }
+            { name: "Warm Up", target: 2, defenders: [], keeperSpeed: 0.012, desc: "Just you and Alisson. Easy start!" },
+            { name: "Getting Started", target: 2, defenders: ['konate'], keeperSpeed: 0.015, defenderSpeed: 2.0, desc: "Konate joins but he's taking it easy!" },
+            { name: "Van Dijk!", target: 2, defenders: ['konate', 'vandijk'], keeperSpeed: 0.018, defenderSpeed: 2.3, desc: "The big man Van Dijk arrives!" },
+            { name: "Robertson Joins", target: 3, defenders: ['konate', 'vandijk', 'robertson'], keeperSpeed: 0.022, defenderSpeed: 2.5, desc: "Robertson adds to the defense!" },
+            { name: "FREE KICK!", target: 1, defenders: [], keeperSpeed: 0.025, freeKick: true, wallSize: 3, desc: "Bonus Round! Bend it like Salah!" },
+            { name: "Stepping Up", target: 3, defenders: ['konate', 'vandijk'], keeperSpeed: 0.028, defenderSpeed: 2.8, desc: "Defenders are getting serious!" },
+            { name: "Full Squad", target: 3, defenders: ['konate', 'vandijk', 'robertson', 'bradley'], keeperSpeed: 0.032, defenderSpeed: 3.0, desc: "Bradley completes the back four!" },
+            { name: "FINAL FREE KICK", target: 1, defenders: [], keeperSpeed: 0.035, freeKick: true, wallSize: 4, desc: "Bigger wall! Curve it in!" },
+            { name: "Legend Mode", target: 4, defenders: ['konate', 'vandijk', 'robertson', 'bradley'], keeperSpeed: 0.04, defenderSpeed: 3.3, desc: "Prove you're a legend!" }
         ];
 
         // Game state
@@ -325,10 +325,10 @@
 
         // Defenders
         const defenders = {
-            konate: { x: 500, y: 250, speed: 3.2, tackleRange: 40, number: 5, skin: '#3d2314' },
-            vandijk: { x: 450, y: 180, speed: 2.8, tackleRange: 45, number: 4, skin: '#d4a574' },
-            robertson: { x: 480, y: 320, speed: 3.5, tackleRange: 38, number: 26, skin: '#f5d5c8' },
-            'alexander-arnold': { x: 420, y: 250, speed: 3.6, tackleRange: 36, number: 66, skin: '#d4a574' }
+            konate: { x: 500, y: 250, speed: 2.5, tackleRange: 35, number: 5, skin: '#3d2314' },
+            vandijk: { x: 450, y: 180, speed: 2.2, tackleRange: 38, number: 4, skin: '#d4a574' },
+            robertson: { x: 480, y: 320, speed: 2.8, tackleRange: 32, number: 26, skin: '#f5d5c8' },
+            bradley: { x: 420, y: 250, speed: 2.6, tackleRange: 30, number: 66, skin: '#f5d5c8' }
         };
 
         // Goal
@@ -638,11 +638,11 @@
             shotPower = 0;
 
             // Reset defenders
-            const defSpeed = level.defenderSpeed || 3.2;
+            const defSpeed = level.defenderSpeed || 2.0;
             defenders.konate.x = 500; defenders.konate.y = 250; defenders.konate.speed = defSpeed;
             defenders.vandijk.x = 450; defenders.vandijk.y = 180; defenders.vandijk.speed = defSpeed * 0.9;
             defenders.robertson.x = 480; defenders.robertson.y = 320; defenders.robertson.speed = defSpeed * 1.1;
-            defenders['alexander-arnold'].x = 420; defenders['alexander-arnold'].y = 250; defenders['alexander-arnold'].speed = defSpeed * 1.15;
+            defenders.bradley.x = 420; defenders.bradley.y = 250; defenders.bradley.speed = defSpeed * 1.05;
         }
 
         function setupWall(size) {
