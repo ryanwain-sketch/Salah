@@ -56,6 +56,8 @@
             border-radius: 8px;
             box-shadow: 0 0 30px rgba(200, 16, 46, 0.5);
             image-rendering: pixelated;
+            max-width: 100%;
+            touch-action: none;
         }
 
         .instructions {
@@ -64,6 +66,63 @@
             margin-top: 15px;
             font-family: 'Press Start 2P', monospace;
             line-height: 1.8;
+        }
+
+        .mobile-controls {
+            display: none;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            padding: 0 20px;
+            width: 100%;
+            max-width: 800px;
+        }
+
+        @media (pointer: coarse) {
+            .mobile-controls { display: flex; }
+            .instructions { display: none; }
+        }
+
+        .joystick-area {
+            width: 120px;
+            height: 120px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 50%;
+            position: relative;
+            border: 3px solid rgba(255,255,255,0.3);
+        }
+
+        .joystick-knob {
+            width: 50px;
+            height: 50px;
+            background: rgba(200, 16, 46, 0.8);
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 3px solid #fff;
+        }
+
+        .shoot-btn {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(145deg, #c8102e, #a00d24);
+            border-radius: 50%;
+            border: 4px solid #ffd700;
+            color: #fff;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(200, 16, 46, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .shoot-btn:active {
+            transform: scale(0.95);
+            box-shadow: 0 3px 10px rgba(200, 16, 46, 0.5);
         }
 
         .message {
@@ -88,6 +147,12 @@
             ARROW KEYS / WASD - Move Salah<br>
             SPACE - Shoot the ball<br>
             R - Reset position
+        </div>
+        <div class="mobile-controls">
+            <div class="joystick-area" id="joystick">
+                <div class="joystick-knob" id="knob"></div>
+            </div>
+            <button class="shoot-btn" id="shootBtn">SHOOT</button>
         </div>
     </div>
 
@@ -162,6 +227,66 @@
             keys[e.key.toLowerCase()] = false;
         });
 
+        // Mobile touch controls
+        const joystick = document.getElementById('joystick');
+        const knob = document.getElementById('knob');
+        const shootBtn = document.getElementById('shootBtn');
+        let joystickActive = false;
+        let joystickCenter = { x: 0, y: 0 };
+        let touchMove = { x: 0, y: 0 };
+
+        // Scale factor for canvas
+        function getCanvasScale() {
+            const rect = canvas.getBoundingClientRect();
+            return { x: canvas.width / rect.width, y: canvas.height / rect.height };
+        }
+
+        // Joystick touch handlers
+        joystick.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            joystickActive = true;
+            const rect = joystick.getBoundingClientRect();
+            joystickCenter = {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2
+            };
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            if (!joystickActive) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            const maxDist = 35;
+
+            let dx = touch.clientX - joystickCenter.x;
+            let dy = touch.clientY - joystickCenter.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > maxDist) {
+                dx = (dx / dist) * maxDist;
+                dy = (dy / dist) * maxDist;
+            }
+
+            knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+            touchMove = { x: dx / maxDist, y: dy / maxDist };
+        }, { passive: false });
+
+        document.addEventListener('touchend', (e) => {
+            if (joystickActive) {
+                joystickActive = false;
+                knob.style.transform = 'translate(-50%, -50%)';
+                touchMove = { x: 0, y: 0 };
+            }
+        });
+
+        // Shoot button
+        shootBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (gameState === 'playing' && salah.hasBall) {
+                shootBall();
+            }
+        });
+
         function shootBall() {
             gameState = 'shooting';
             salah.hasBall = false;
@@ -202,7 +327,7 @@
             alisson.diving = false;
             alisson.diveFrame = 0;
             gameState = 'playing';
-            document.getElementById('message').textContent = 'Press SPACE to shoot!';
+            document.getElementById('message').textContent = 'Tap SHOOT to score!';
         }
 
         function drawField() {
@@ -439,10 +564,19 @@
         function updateGame() {
             // Move Salah
             if (gameState === 'playing') {
+                // Keyboard controls
                 if ((keys['arrowleft'] || keys['a']) && salah.x > 50) salah.x -= salah.speed;
                 if ((keys['arrowright'] || keys['d']) && salah.x < 600) salah.x += salah.speed;
                 if ((keys['arrowup'] || keys['w']) && salah.y > 50) salah.y -= salah.speed;
                 if ((keys['arrowdown'] || keys['s']) && salah.y < 420) salah.y += salah.speed;
+
+                // Touch/joystick controls
+                if (touchMove.x !== 0 || touchMove.y !== 0) {
+                    const newX = salah.x + touchMove.x * salah.speed;
+                    const newY = salah.y + touchMove.y * salah.speed;
+                    if (newX > 50 && newX < 600) salah.x = newX;
+                    if (newY > 50 && newY < 420) salah.y = newY;
+                }
 
                 // Ball follows Salah
                 if (salah.hasBall) {
