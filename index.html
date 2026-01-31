@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mo Salah vs Liverpool - Pixel Soccer</title>
+    <!-- GameMonetize SDK for Ads -->
+    <script src="https://api.gamemonetize.com/sdk.js"></script>
     <style>
         * {
             margin: 0;
@@ -252,6 +254,14 @@
         </div>
     </div>
 
+    <!-- Ad Container -->
+    <div class="overlay hidden" id="adOverlay">
+        <div class="menu" style="padding:15px;">
+            <p style="color:#ffd700;font-size:10px;margin-bottom:10px;">Loading ad...</p>
+            <div id="gamemonetize-ad"></div>
+        </div>
+    </div>
+
     <!-- Level Complete Overlay -->
     <div class="overlay hidden" id="levelOverlay">
         <div class="menu">
@@ -259,6 +269,7 @@
             <p style="color:#4ade80;font-size:14px;margin:15px 0;" id="levelScore"></p>
             <p style="color:#fff;font-size:10px;margin:15px 0;" id="levelDesc"></p>
             <button id="nextLevelBtn">NEXT LEVEL</button>
+            <button id="extraLifeBtn" style="background:linear-gradient(145deg,#22c55e,#16a34a);margin-top:5px;">📺 WATCH AD +1 LIFE</button>
         </div>
     </div>
 
@@ -268,6 +279,7 @@
             <h2>GAME OVER</h2>
             <p style="color:#ffd700;font-size:16px;margin:15px 0;">Final Score: <span id="finalScore">0</span></p>
             <p style="color:#fff;font-size:10px;margin:15px 0;" id="gameOverMsg"></p>
+            <button id="continueAdBtn" style="background:linear-gradient(145deg,#22c55e,#16a34a);">📺 WATCH AD TO CONTINUE</button>
             <button id="playAgainBtn">PLAY AGAIN</button>
             <button id="mainMenuBtn">MAIN MENU</button>
             <div class="leaderboard" id="gameOverLeaderboard"></div>
@@ -443,6 +455,43 @@
                 });
             }
             container.innerHTML = html;
+        }
+
+        // GameMonetize Ads
+        const GAME_ID = '4kci7og3klgj0ivy2wz3gdvd9dth5e7n';
+        let adCallback = null;
+        let adsWatched = 0;
+
+        function showAd(onComplete) {
+            adCallback = onComplete;
+            document.getElementById('adOverlay').classList.remove('hidden');
+
+            if (typeof sdk !== 'undefined' && sdk.showBanner) {
+                sdk.showBanner({
+                    게임_id: GAME_ID,
+                    게임_distribution: true
+                }).then(() => {
+                    adsWatched++;
+                    document.getElementById('adOverlay').classList.add('hidden');
+                    if (adCallback) adCallback(true);
+                }).catch(() => {
+                    document.getElementById('adOverlay').classList.add('hidden');
+                    if (adCallback) adCallback(false);
+                });
+            } else {
+                // Fallback: simulate ad for testing
+                setTimeout(() => {
+                    adsWatched++;
+                    document.getElementById('adOverlay').classList.add('hidden');
+                    if (adCallback) adCallback(true);
+                }, 1500);
+            }
+        }
+
+        function showRewardedAd(onReward) {
+            showAd((success) => {
+                if (success && onReward) onReward();
+            });
         }
 
         // Input handling
@@ -1213,15 +1262,41 @@
         });
 
         document.getElementById('nextLevelBtn').addEventListener('click', () => {
-            startLevel(currentLevel + 1);
+            // Show ad between levels (every other level for better UX)
+            if (currentLevel > 0 && currentLevel % 2 === 0) {
+                showAd(() => {
+                    startLevel(currentLevel + 1);
+                });
+            } else {
+                startLevel(currentLevel + 1);
+            }
+        });
+
+        document.getElementById('extraLifeBtn').addEventListener('click', () => {
+            showRewardedAd(() => {
+                lives++;
+                document.getElementById('message').textContent = '+1 LIFE! You now have ' + lives + ' lives!';
+            });
+        });
+
+        document.getElementById('continueAdBtn').addEventListener('click', () => {
+            showRewardedAd(() => {
+                // Give player another chance
+                document.getElementById('gameOverOverlay').classList.add('hidden');
+                lives = 1;
+                resetPositions();
+            });
         });
 
         document.getElementById('playAgainBtn').addEventListener('click', () => {
-            document.getElementById('gameOverOverlay').classList.add('hidden');
-            totalScore = 0;
-            lives = 5;
-            document.getElementById('totalScore').textContent = '0';
-            startLevel(0);
+            // Show ad on replay
+            showAd(() => {
+                document.getElementById('gameOverOverlay').classList.add('hidden');
+                totalScore = 0;
+                lives = 5;
+                document.getElementById('totalScore').textContent = '0';
+                startLevel(0);
+            });
         });
 
         document.getElementById('mainMenuBtn').addEventListener('click', () => {
