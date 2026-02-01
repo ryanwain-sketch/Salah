@@ -425,6 +425,7 @@
         <div class="menu">
             <h2>GAME OVER</h2>
             <p style="color:#ffd700;font-size:16px;margin:15px 0;">Final Score: <span id="finalScore">0</span></p>
+            <p style="color:#ff6b6b;font-size:12px;margin:5px 0;" id="bestStreakDisplay"></p>
             <p style="color:#fff;font-size:10px;margin:15px 0;" id="gameOverMsg"></p>
             <div style="margin:15px 0;">
                 <p style="color:#fff;font-size:8px;margin-bottom:8px;">SHARE YOUR SCORE:</p>
@@ -551,6 +552,13 @@
         let playerName = '';
         let gameState = 'menu'; // menu, playing, shooting, celebrating, saved, tackled, freeKick, gameOver
         let gamePaused = false; // Pause game during ads/overlays
+
+        // Combo/streak system
+        let currentStreak = 0;
+        let bestStreak = 0;
+        let comboMultiplier = 1;
+        let screenShake = 0;
+        let lastGoalTime = 0;
 
         // Free kick state - FPV (First Person View) system
         let freeKickPhase = 'aim'; // aim, power, flying
@@ -1166,6 +1174,13 @@
             gameState = 'gameOver';
             document.getElementById('finalScore').textContent = totalScore;
 
+            // Show best streak
+            if (bestStreak >= 3) {
+                document.getElementById('bestStreakDisplay').textContent = `🔥 Best Streak: ${bestStreak} in a row!`;
+            } else {
+                document.getElementById('bestStreakDisplay').textContent = '';
+            }
+
             const level = levels[currentLevel];
             let msg;
             if (level && level.suddenDeath) {
@@ -1187,9 +1202,21 @@
             levelGoals++;
             const level = levels[currentLevel];
 
-            // Sudden death gives bonus points per goal
-            const goalPoints = level.suddenDeath ? 15 : 10;
+            // Combo system - consecutive goals!
+            currentStreak++;
+            if (currentStreak > bestStreak) bestStreak = currentStreak;
+
+            // Calculate combo multiplier (max 5x)
+            comboMultiplier = Math.min(5, 1 + Math.floor(currentStreak / 2));
+
+            // Base points with combo multiplier
+            const basePoints = level.suddenDeath ? 15 : 10;
+            const goalPoints = basePoints * comboMultiplier;
             totalScore += goalPoints;
+
+            // Screen shake on goal!
+            screenShake = 10;
+            lastGoalTime = Date.now();
 
             document.getElementById('goals').textContent = levelGoals;
             document.getElementById('totalScore').textContent = totalScore;
@@ -1197,13 +1224,20 @@
             const isFreeKick = level.freeKick;
             const isSuddenDeath = level.suddenDeath;
 
-            if (isSuddenDeath) {
-                document.getElementById('message').textContent = `GOAL #${levelGoals}! +${goalPoints} pts! Keep going!`;
+            // Dynamic message based on streak
+            let message = '';
+            if (currentStreak >= 5) {
+                message = `🔥 ON FIRE! ${currentStreak} IN A ROW! +${goalPoints}pts (${comboMultiplier}x)`;
+            } else if (currentStreak >= 3) {
+                message = `⚡ STREAK x${currentStreak}! +${goalPoints}pts (${comboMultiplier}x)`;
+            } else if (comboMultiplier > 1) {
+                message = `GOAL! +${goalPoints}pts (${comboMultiplier}x COMBO!)`;
+            } else if (isSuddenDeath) {
+                message = `GOAL #${levelGoals}! +${goalPoints} pts! Keep going!`;
             } else {
-                document.getElementById('message').textContent = isFreeKick
-                    ? randomMessage(freeKickMessages)
-                    : randomMessage(goalMessages);
+                message = isFreeKick ? randomMessage(freeKickMessages) : randomMessage(goalMessages);
             }
+            document.getElementById('message').textContent = message;
 
             gameState = 'celebrating';
             salah.celebrating = true;
@@ -1223,9 +1257,16 @@
 
         function handleMiss(isSave) {
             lives--;
-            document.getElementById('message').textContent = isSave
-                ? randomMessage(saveMessages)
-                : randomMessage(missMessages);
+            // Reset streak on miss
+            if (currentStreak >= 3) {
+                document.getElementById('message').textContent = `Streak ended at ${currentStreak}! ${isSave ? randomMessage(saveMessages) : randomMessage(missMessages)}`;
+            } else {
+                document.getElementById('message').textContent = isSave
+                    ? randomMessage(saveMessages)
+                    : randomMessage(missMessages);
+            }
+            currentStreak = 0;
+            comboMultiplier = 1;
             gameState = 'saved';
 
             if (lives <= 0) {
@@ -2013,6 +2054,16 @@
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // Screen shake effect
+            ctx.save();
+            if (screenShake > 0) {
+                const shakeX = (Math.random() - 0.5) * screenShake;
+                const shakeY = (Math.random() - 0.5) * screenShake;
+                ctx.translate(shakeX, shakeY);
+                screenShake *= 0.9;
+                if (screenShake < 0.5) screenShake = 0;
+            }
+
             const level = levels[currentLevel];
 
             // FPV mode for free kicks
@@ -2042,6 +2093,21 @@
                 drawCelebration();
                 drawTip();
             }
+
+            // Draw streak counter if on a streak
+            if (currentStreak >= 2 && gameState !== 'menu') {
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(10, 10, 100, 30);
+                ctx.fillStyle = currentStreak >= 5 ? '#ff4444' : currentStreak >= 3 ? '#ffd700' : '#fff';
+                ctx.font = 'bold 14px monospace';
+                ctx.fillText(`🔥 x${currentStreak}`, 20, 30);
+                if (comboMultiplier > 1) {
+                    ctx.font = '10px monospace';
+                    ctx.fillText(`${comboMultiplier}x pts`, 55, 30);
+                }
+            }
+
+            ctx.restore();
 
             requestAnimationFrame(gameLoop);
         }
@@ -2272,6 +2338,9 @@
             document.getElementById('startOverlay').classList.add('hidden');
             totalScore = 0;
             lives = 5;
+            currentStreak = 0;
+            bestStreak = 0;
+            comboMultiplier = 1;
             document.getElementById('totalScore').textContent = '0';
             startLevel(0);
         });
@@ -2309,6 +2378,9 @@
                 document.getElementById('gameOverOverlay').classList.add('hidden');
                 totalScore = 0;
                 lives = 5;
+                currentStreak = 0;
+                bestStreak = 0;
+                comboMultiplier = 1;
                 document.getElementById('totalScore').textContent = '0';
                 startLevel(0);
             });
