@@ -8,6 +8,23 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#1a1a2e">
     <title>Mo Salah Goal Machine</title>
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://mosalahgame.com/">
+    <meta property="og:title" content="Mo Salah Goal Machine - Pixel Soccer Game">
+    <meta property="og:description" content="Play as Mo Salah and score goals! Dodge defenders, take free kicks, and become a legend. Can you beat my score?">
+    <meta property="og:image" content="https://mosalahgame.com/og-image.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://mosalahgame.com/">
+    <meta property="twitter:title" content="Mo Salah Goal Machine - Pixel Soccer Game">
+    <meta property="twitter:description" content="Play as Mo Salah and score goals! Dodge defenders, take free kicks, and become a legend.">
+    <meta property="twitter:image" content="https://mosalahgame.com/og-image.png">
+
+    <!-- WhatsApp -->
+    <meta property="og:site_name" content="Mo Salah Goal Machine">
     <!-- GameMonetize SDK for Ads -->
     <script src="https://api.gamemonetize.com/sdk.js"></script>
     <style>
@@ -506,8 +523,10 @@
             <div style="margin:15px 0;">
                 <p style="color:#fff;font-size:8px;margin-bottom:8px;">SHARE YOUR SCORE:</p>
                 <button onclick="shareScore('x')" style="padding:8px 12px;font-size:10px;margin:3px;background:#000;">𝕏 Post</button>
+                <button onclick="shareScore('facebook')" style="padding:8px 12px;font-size:10px;margin:3px;background:#1877F2;">📘 Facebook</button>
                 <button onclick="shareScore('whatsapp')" style="padding:8px 12px;font-size:10px;margin:3px;background:#25D366;">💬 WhatsApp</button>
                 <button onclick="shareScore('copy')" style="padding:8px 12px;font-size:10px;margin:3px;background:#666;">📋 Copy</button>
+                <button onclick="generateScoreCard()" style="padding:8px 12px;font-size:10px;margin:3px;background:#c8102e;">📸 Save Card</button>
             </div>
             <button id="continueAdBtn" style="background:linear-gradient(145deg,#22c55e,#16a34a);">📺 WATCH AD TO CONTINUE</button>
             <button id="playAgainBtn">PLAY AGAIN</button>
@@ -1138,6 +1157,76 @@
                     });
                     break;
             }
+        }
+
+        // Generate shareable score card image
+        function generateScoreCard() {
+            const cardCanvas = document.createElement('canvas');
+            cardCanvas.width = 600;
+            cardCanvas.height = 400;
+            const cardCtx = cardCanvas.getContext('2d');
+
+            // Background gradient
+            const grad = cardCtx.createLinearGradient(0, 0, 600, 400);
+            grad.addColorStop(0, '#1a1a2e');
+            grad.addColorStop(1, '#c8102e');
+            cardCtx.fillStyle = grad;
+            cardCtx.fillRect(0, 0, 600, 400);
+
+            // Add pitch pattern
+            cardCtx.fillStyle = 'rgba(45, 90, 39, 0.3)';
+            for (let i = 0; i < 10; i++) {
+                if (i % 2 === 0) {
+                    cardCtx.fillRect(0, 280 + i * 12, 600, 12);
+                }
+            }
+
+            // Title
+            cardCtx.fillStyle = '#ffd700';
+            cardCtx.font = 'bold 28px "Press Start 2P", monospace';
+            cardCtx.textAlign = 'center';
+            cardCtx.fillText('MO SALAH', 300, 60);
+            cardCtx.fillText('GOAL MACHINE', 300, 100);
+
+            // Score box
+            cardCtx.fillStyle = 'rgba(0,0,0,0.6)';
+            cardCtx.fillRect(100, 130, 400, 150);
+            cardCtx.strokeStyle = '#ffd700';
+            cardCtx.lineWidth = 4;
+            cardCtx.strokeRect(100, 130, 400, 150);
+
+            // Score
+            cardCtx.fillStyle = '#fff';
+            cardCtx.font = '16px "Press Start 2P", monospace';
+            cardCtx.fillText('FINAL SCORE', 300, 170);
+
+            cardCtx.fillStyle = '#ffd700';
+            cardCtx.font = 'bold 48px "Press Start 2P", monospace';
+            cardCtx.fillText(totalScore.toString(), 300, 230);
+
+            // Stats
+            cardCtx.fillStyle = '#fff';
+            cardCtx.font = '10px "Press Start 2P", monospace';
+            cardCtx.fillText(`BEST STREAK: ${bestStreak}x`, 300, 265);
+
+            // Player name
+            const playerName = document.getElementById('playerName')?.value || 'PLAYER';
+            cardCtx.fillStyle = '#c8102e';
+            cardCtx.fillRect(175, 300, 250, 35);
+            cardCtx.fillStyle = '#fff';
+            cardCtx.font = '12px "Press Start 2P", monospace';
+            cardCtx.fillText(playerName.toUpperCase(), 300, 323);
+
+            // Footer
+            cardCtx.fillStyle = 'rgba(255,255,255,0.7)';
+            cardCtx.font = '8px "Press Start 2P", monospace';
+            cardCtx.fillText('mosalahgame.com - Play Now!', 300, 380);
+
+            // Download the image
+            const link = document.createElement('a');
+            link.download = `mosalah-score-${totalScore}.png`;
+            link.href = cardCanvas.toDataURL('image/png');
+            link.click();
         }
 
         // Tips system
