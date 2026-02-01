@@ -118,6 +118,24 @@
             background: rgba(255,215,0,0.3);
         }
 
+        .sound-btn {
+            position: absolute;
+            top: 10px;
+            right: 60px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid #ffd700;
+            color: #ffd700;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 14px;
+            cursor: pointer;
+            z-index: 50;
+            font-family: 'Press Start 2P', monospace;
+        }
+        .sound-btn:active {
+            background: rgba(255,215,0,0.3);
+        }
+
         .instructions {
             color: #888;
             font-size: clamp(6px, 1.5vw, 8px);
@@ -382,6 +400,7 @@
         </div>
         <div id="canvasWrapper">
             <canvas id="gameCanvas" width="800" height="500"></canvas>
+            <button class="sound-btn" id="soundBtn" title="Music">🔇</button>
             <button class="pause-btn" id="pauseBtn" title="Pause">❚❚</button>
         </div>
         <div class="message" id="message">Hold SHOOT to power up!</div>
@@ -468,6 +487,108 @@
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+
+        // ========== MO SALAH MUSIC (Web Audio API) ==========
+        let audioCtx = null;
+        let musicPlaying = false;
+        let musicInterval = null;
+
+        // "Mo Salah" melody (inspired by "Sit Down" by James)
+        // Notes: Mo Sa-lah, Mo Sa-lah, Mo Sa-lah, running down the wing
+        const moSalahMelody = [
+            { note: 'E4', duration: 0.3 },
+            { note: 'E4', duration: 0.3 },
+            { note: 'D4', duration: 0.6 },
+            { note: 'E4', duration: 0.3 },
+            { note: 'E4', duration: 0.3 },
+            { note: 'D4', duration: 0.6 },
+            { note: 'E4', duration: 0.3 },
+            { note: 'E4', duration: 0.3 },
+            { note: 'D4', duration: 0.3 },
+            { note: 'C4', duration: 0.3 },
+            { note: 'D4', duration: 0.3 },
+            { note: 'E4', duration: 0.6 },
+            // "Sa-lah la la la la"
+            { note: 'G4', duration: 0.3 },
+            { note: 'E4', duration: 0.3 },
+            { note: 'D4', duration: 0.3 },
+            { note: 'E4', duration: 0.3 },
+            { note: 'D4', duration: 0.3 },
+            { note: 'C4', duration: 0.6 },
+            // "The Egyptian King"
+            { note: 'E4', duration: 0.3 },
+            { note: 'E4', duration: 0.3 },
+            { note: 'G4', duration: 0.3 },
+            { note: 'E4', duration: 0.3 },
+            { note: 'D4', duration: 0.6 },
+            { note: 'rest', duration: 0.6 },
+        ];
+
+        const noteFrequencies = {
+            'C4': 261.63, 'D4': 293.66, 'E4': 329.63, 'F4': 349.23,
+            'G4': 392.00, 'A4': 440.00, 'B4': 493.88, 'C5': 523.25,
+            'rest': 0
+        };
+
+        function playNote(frequency, duration, startTime) {
+            if (!audioCtx || frequency === 0) return;
+
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.type = 'square'; // 8-bit style sound
+            oscillator.frequency.value = frequency;
+
+            // Envelope for nicer sound
+            gainNode.gain.setValueAtTime(0.15, startTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration * 0.9);
+
+            oscillator.start(startTime);
+            oscillator.stop(startTime + duration);
+        }
+
+        function playMoSalahSong() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            let time = audioCtx.currentTime + 0.1;
+            moSalahMelody.forEach(({ note, duration }) => {
+                const freq = noteFrequencies[note];
+                if (freq > 0) {
+                    playNote(freq, duration, time);
+                }
+                time += duration;
+            });
+
+            // Return total duration for looping
+            return moSalahMelody.reduce((sum, n) => sum + n.duration, 0) * 1000;
+        }
+
+        function toggleMusic() {
+            const btn = document.getElementById('soundBtn');
+            if (musicPlaying) {
+                // Stop music
+                musicPlaying = false;
+                if (musicInterval) clearInterval(musicInterval);
+                btn.textContent = '🔇';
+                btn.title = 'Music Off';
+            } else {
+                // Start music
+                musicPlaying = true;
+                btn.textContent = '🔊';
+                btn.title = 'Music On';
+                const songLength = playMoSalahSong();
+                musicInterval = setInterval(() => {
+                    if (musicPlaying) playMoSalahSong();
+                }, songLength + 500); // Small gap between loops
+            }
+        }
+
+        document.getElementById('soundBtn')?.addEventListener('click', toggleMusic);
 
         // ========== RESPONSIVE SCALING ==========
         const GAME_WIDTH = 800;
@@ -1214,6 +1335,12 @@
         }
 
         async function endGame(completed) {
+            // Don't trigger game over if ad is playing
+            if (document.body.classList.contains('ad-playing')) {
+                console.log('Prevented game over during ad');
+                return;
+            }
+
             gameState = 'gameOver';
             screenShake = 0; // Stop any screen shake
             document.getElementById('finalScore').textContent = totalScore;
