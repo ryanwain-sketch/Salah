@@ -440,7 +440,7 @@
             <p style="color:#fff;font-size:10px;margin:15px 0;" id="gameOverMsg"></p>
             <div style="margin:15px 0;">
                 <p style="color:#fff;font-size:8px;margin-bottom:8px;">SHARE YOUR SCORE:</p>
-                <button onclick="shareScore('twitter')" style="padding:8px 12px;font-size:10px;margin:3px;">🐦 Twitter</button>
+                <button onclick="shareScore('x')" style="padding:8px 12px;font-size:10px;margin:3px;background:#000;">𝕏 Post</button>
                 <button onclick="shareScore('whatsapp')" style="padding:8px 12px;font-size:10px;margin:3px;background:#25D366;">💬 WhatsApp</button>
                 <button onclick="shareScore('copy')" style="padding:8px 12px;font-size:10px;margin:3px;background:#666;">📋 Copy</button>
             </div>
@@ -532,6 +532,19 @@
 
         document.getElementById('pauseBtn')?.addEventListener('click', togglePause);
 
+        // Tap canvas to unpause (when paused)
+        canvas.addEventListener('click', (e) => {
+            if (gamePaused && gameState !== 'menu' && gameState !== 'gameOver') {
+                togglePause();
+            }
+        });
+        canvas.addEventListener('touchend', (e) => {
+            if (gamePaused && gameState !== 'menu' && gameState !== 'gameOver') {
+                e.preventDefault();
+                togglePause();
+            }
+        });
+
         // Handle resize and orientation changes
         window.addEventListener('resize', resizeCanvas);
         window.addEventListener('orientationchange', () => {
@@ -579,6 +592,7 @@
         let comboMultiplier = 1;
         let screenShake = 0;
         let lastGoalTime = 0;
+        let deathCount = 0; // Track deaths for ad breaks
 
         // Free kick state - FPV (First Person View) system
         let freeKickPhase = 'aim'; // aim, power, flying
@@ -903,8 +917,8 @@
             const url = GAME_URL;
 
             switch(platform) {
-                case 'twitter':
-                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
+                case 'x':
+                    window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
                     break;
                 case 'whatsapp':
                     window.open(`https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}`, '_blank');
@@ -1287,6 +1301,8 @@
 
         function handleMiss(isSave) {
             lives--;
+            deathCount++;
+
             // Reset streak on miss
             if (currentStreak >= 3) {
                 document.getElementById('message').textContent = `Streak ended at ${currentStreak}! ${isSave ? randomMessage(saveMessages) : randomMessage(missMessages)}`;
@@ -1302,12 +1318,27 @@
             if (lives <= 0) {
                 setTimeout(() => endGame(false), 1500);
             } else {
-                setTimeout(resetPositions, 1500);
+                // Show ad every 3rd death (not too annoying)
+                if (deathCount % 3 === 0) {
+                    setTimeout(() => {
+                        showAd(() => {
+                            gamePaused = true;
+                            document.getElementById('pauseBtn').textContent = '▶';
+                            document.getElementById('message').textContent = 'Tap ▶ when ready!';
+                        });
+                    }, 1500);
+                } else {
+                    setTimeout(resetPositions, 1500);
+                }
             }
         }
 
         function handleTackle(defenderName) {
             lives--;
+            deathCount++;
+            currentStreak = 0;
+            comboMultiplier = 1;
+
             const name = defenderName.charAt(0).toUpperCase() + defenderName.slice(1).replace('-', ' ');
             document.getElementById('message').textContent = `${name}: ${randomMessage(tackleMessages)}`;
             gameState = 'tackled';
@@ -1315,7 +1346,18 @@
             if (lives <= 0) {
                 setTimeout(() => endGame(false), 1500);
             } else {
-                setTimeout(resetPositions, 1500);
+                // Show ad every 3rd death
+                if (deathCount % 3 === 0) {
+                    setTimeout(() => {
+                        showAd(() => {
+                            gamePaused = true;
+                            document.getElementById('pauseBtn').textContent = '▶';
+                            document.getElementById('message').textContent = 'Tap ▶ when ready!';
+                        });
+                    }, 1500);
+                } else {
+                    setTimeout(resetPositions, 1500);
+                }
             }
         }
 
@@ -1769,6 +1811,11 @@
 
             // Target reticle (where you're aiming)
             if (freeKickPhase === 'aim') {
+                // Show "sweet spots" - top corners glow green
+                ctx.fillStyle = 'rgba(0,255,0,0.2)';
+                ctx.fillRect(220, 130, 80, 50); // Top left corner
+                ctx.fillRect(500, 130, 80, 50); // Top right corner
+
                 ctx.strokeStyle = '#ffd700';
                 ctx.lineWidth = 3;
                 ctx.beginPath();
@@ -1785,20 +1832,37 @@
                 ctx.lineTo(fkTarget.x, fkTarget.y + 30);
                 ctx.stroke();
 
-                // Hint text based on target position
+                // Better hint text with scoring tips
                 let hint = '';
-                if (fkTarget.y < 180) hint = 'TOP CORNER - SCREAMER!';
-                else if (fkTarget.y > 240) hint = 'LOW & HARD';
-                else hint = 'MID HEIGHT';
+                let chance = '';
+                const inTopCorner = fkTarget.y < 180 && (fkTarget.x < 320 || fkTarget.x > 480);
+                const nearKeeper = fkTarget.x > 350 && fkTarget.x < 450;
 
-                if (fkTarget.x < 350) hint += ' (CURL LEFT)';
-                else if (fkTarget.x > 450) hint += ' (CURL RIGHT)';
+                if (inTopCorner) {
+                    hint = '⭐ TOP CORNER - BEST CHANCE!';
+                    chance = '(Use HIGH power to clear wall)';
+                } else if (fkTarget.y < 180) {
+                    hint = 'HIGH - Go wider for corners!';
+                    chance = '(Keeper can reach center)';
+                } else if (fkTarget.y > 240) {
+                    hint = 'LOW SHOT - Risky!';
+                    chance = '(May hit wall - use LOW power)';
+                } else if (nearKeeper) {
+                    hint = 'CENTER - Keeper territory!';
+                    chance = '(Aim for corners!)';
+                } else {
+                    hint = 'MID HEIGHT - Decent';
+                    chance = '(Corners are safer)';
+                }
 
-                ctx.fillStyle = '#ffd700';
-                ctx.font = '12px monospace';
+                ctx.fillStyle = inTopCorner ? '#4ade80' : '#ffd700';
+                ctx.font = 'bold 14px monospace';
                 ctx.textAlign = 'center';
-                ctx.fillText(hint, 400, 80);
-                ctx.fillText('MOVE TO AIM - HOLD SHOOT FOR POWER', 400, 470);
+                ctx.fillText(hint, 400, 75);
+                ctx.font = '10px monospace';
+                ctx.fillStyle = '#fff';
+                ctx.fillText(chance, 400, 92);
+                ctx.fillText('🎯 AIM with joystick | 🔥 HOLD SHOOT for power', 400, 470);
                 ctx.textAlign = 'left';
             }
 
@@ -1901,8 +1965,10 @@
                     // Keeper dives - sometimes wrong way!
                     const targetX = fkTarget.x + fkCurve * 50;
                     fkKeeperDiveDir = targetX < 400 ? -1 : 1;
-                    // 30% chance keeper guesses wrong
-                    if (Math.random() < 0.3) fkKeeperDiveDir *= -1;
+                    // Top corners = 50% keeper guesses wrong, center = 20% wrong
+                    const inCorner = Math.abs(targetX - 400) > 100;
+                    const wrongGuessChance = inCorner ? 0.5 : 0.2;
+                    if (Math.random() < wrongGuessChance) fkKeeperDiveDir *= -1;
                 }
 
                 if (fkKeeperDiving) {
@@ -1919,18 +1985,22 @@
 
                     // Check if keeper saved it
                     const keeperDist = Math.abs(finalX - fkKeeperPos.x);
-                    const heightFactor = fkTarget.y < 160 ? 1.5 : 1; // Top corners harder to save
+                    const inTopCorner = fkTarget.y < 180 && Math.abs(fkTarget.x - 400) > 80;
+                    // Top corners much harder to save (need to be very close)
+                    const saveRadius = inTopCorner ? 30 : 55;
+                    // Even if close, top corners have 50% save chance, center 70%
+                    const saveChance = inTopCorner ? 0.5 : 0.7;
 
-                    // Check wall hit (low shots)
-                    const hitWall = fkPower < 40 && Math.abs(finalX - 400) < 80 && finalY > 300;
+                    // Check wall hit (low shots only if power too low)
+                    const hitWall = fkPower < 35 && Math.abs(finalX - 400) < 70 && fkTarget.y > 220;
 
                     if (hitWall) {
-                        document.getElementById('message').textContent = 'BLOCKED BY THE WALL!';
+                        document.getElementById('message').textContent = 'BLOCKED BY THE WALL! (Use more power)';
                         handleMiss(false);
-                    } else if (keeperDist < 60 / heightFactor && Math.random() > 0.3) {
+                    } else if (keeperDist < saveRadius && Math.random() < saveChance) {
                         document.getElementById('message').textContent = randomMessage(saveMessages);
                         handleMiss(true);
-                    } else if (finalX < 220 || finalX > 580 || finalY < 120 || finalY > 280) {
+                    } else if (finalX < 210 || finalX > 590 || finalY < 115 || finalY > 285) {
                         document.getElementById('message').textContent = randomMessage(missMessages);
                         handleMiss(false);
                     } else {
@@ -2144,17 +2214,43 @@
                 ctx.textAlign = 'left';
             }
 
-            // Draw pause overlay
+            // Draw pause overlay with big play button
             if (gamePaused && gameState !== 'menu' && gameState !== 'gameOver') {
-                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                // Gray overlay
+                ctx.fillStyle = 'rgba(0,0,0,0.75)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#ffd700';
-                ctx.font = 'bold 32px "Press Start 2P", monospace';
-                ctx.textAlign = 'center';
-                ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2 - 20);
-                ctx.font = '12px "Press Start 2P", monospace';
+
+                // Big play button circle
+                const btnX = canvas.width / 2;
+                const btnY = canvas.height / 2;
+                const btnRadius = 60;
+
+                // Button background
+                ctx.beginPath();
+                ctx.arc(btnX, btnY, btnRadius, 0, Math.PI * 2);
+                ctx.fillStyle = '#c8102e';
+                ctx.fill();
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                // Play triangle
                 ctx.fillStyle = '#fff';
-                ctx.fillText('Tap ▶ to resume', canvas.width / 2, canvas.height / 2 + 20);
+                ctx.beginPath();
+                ctx.moveTo(btnX - 15, btnY - 25);
+                ctx.lineTo(btnX - 15, btnY + 25);
+                ctx.lineTo(btnX + 25, btnY);
+                ctx.closePath();
+                ctx.fill();
+
+                // Text
+                ctx.fillStyle = '#ffd700';
+                ctx.font = 'bold 24px "Press Start 2P", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('PAUSED', btnX, btnY - 90);
+                ctx.font = '10px "Press Start 2P", monospace';
+                ctx.fillStyle = '#fff';
+                ctx.fillText('TAP TO PLAY', btnX, btnY + 90);
                 ctx.textAlign = 'left';
             }
 
@@ -2405,6 +2501,7 @@
             currentStreak = 0;
             bestStreak = 0;
             comboMultiplier = 1;
+            deathCount = 0;
             document.getElementById('totalScore').textContent = '0';
             startLevel(0);
         });
@@ -2464,6 +2561,7 @@
                 currentStreak = 0;
                 bestStreak = 0;
                 comboMultiplier = 1;
+                deathCount = 0;
                 document.getElementById('totalScore').textContent = '0';
                 startLevel(0);
             });
