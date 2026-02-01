@@ -257,11 +257,12 @@
     <!-- Ad Container -->
     <div class="overlay hidden" id="adOverlay">
         <div class="menu" style="padding:20px;min-width:280px;">
-            <p style="color:#ffd700;font-size:12px;margin-bottom:15px;">Loading ad...</p>
-            <div id="gamemonetize-ad" style="min-height:100px;display:flex;align-items:center;justify-content:center;">
-                <div style="color:#888;font-size:10px;">Please wait...</div>
+            <p style="color:#ffd700;font-size:14px;margin-bottom:10px;" id="adTitle">BONUS INCOMING!</p>
+            <p style="color:#fff;font-size:24px;margin:20px 0;" id="adCountdown">5</p>
+            <div id="gamemonetize-ad" style="min-height:80px;display:flex;align-items:center;justify-content:center;">
+                <div style="color:#888;font-size:10px;" id="adStatus">Loading...</div>
             </div>
-            <button id="closeAdBtn" style="margin-top:15px;padding:10px 20px;font-size:10px;background:#666;display:none;">SKIP AD</button>
+            <button id="closeAdBtn" style="margin-top:15px;padding:10px 20px;font-size:10px;background:#666;display:none;">SKIP</button>
         </div>
     </div>
 
@@ -323,7 +324,7 @@
             { name: "Stepping Up", target: 3, defenders: ['konate', 'vandijk'], keeperSpeed: 0.028, defenderSpeed: 2.8, desc: "Defenders are getting serious!" },
             { name: "Full Squad", target: 3, defenders: ['konate', 'vandijk', 'robertson', 'bradley'], keeperSpeed: 0.032, defenderSpeed: 3.0, desc: "Bradley completes the back four!" },
             { name: "FINAL FREE KICK", target: 1, defenders: [], keeperSpeed: 0.035, freeKick: true, wallSize: 4, desc: "Bigger wall! Curve it in!" },
-            { name: "Legend Mode", target: 4, defenders: ['konate', 'vandijk', 'robertson', 'bradley'], keeperSpeed: 0.04, defenderSpeed: 3.3, desc: "Prove you're a legend!" }
+            { name: "SUDDEN DEATH", target: 999, defenders: ['konate', 'vandijk', 'robertson', 'bradley'], keeperSpeed: 0.04, defenderSpeed: 3.3, suddenDeath: true, desc: "ENDLESS MODE! Score until you drop!" }
         ];
 
         // Game state
@@ -333,6 +334,7 @@
         let lives = 5;
         let playerName = '';
         let gameState = 'menu'; // menu, playing, shooting, celebrating, saved, tackled, freeKick, bendSelect, gameOver
+        let gamePaused = false; // Pause game during ads/overlays
 
         // Free kick state
         let freeKickPhase = 'aim'; // aim, bend
@@ -519,14 +521,37 @@
         // Try to init SDK when page loads
         window.addEventListener('load', initGameMonetizeSDK);
 
-        function showAd(onComplete) {
+        let adCountdownInterval = null;
+
+        function showAd(onComplete, isRewarded = false) {
             adCallback = onComplete;
+            gamePaused = true; // PAUSE THE GAME
+
+            // Reset ad overlay state
             document.getElementById('adOverlay').classList.remove('hidden');
+            document.getElementById('closeAdBtn').style.display = 'none';
+            document.getElementById('adTitle').textContent = isRewarded ? 'EARNING EXTRA LIFE!' : 'LOADING...';
+            document.getElementById('adStatus').textContent = 'Please wait...';
 
-            // Try multiple SDK patterns
+            // Start countdown from 5
+            let countdown = 5;
+            document.getElementById('adCountdown').textContent = countdown;
+
+            // Clear any existing interval
+            if (adCountdownInterval) clearInterval(adCountdownInterval);
+
+            adCountdownInterval = setInterval(() => {
+                countdown--;
+                if (countdown > 0) {
+                    document.getElementById('adCountdown').textContent = countdown;
+                } else {
+                    document.getElementById('adCountdown').textContent = isRewarded ? '+1 LIFE!' : 'GO!';
+                    document.getElementById('adStatus').textContent = 'Ready!';
+                }
+            }, 1000);
+
+            // Try to show real ad
             let adShown = false;
-
-            // Pattern 1: GameMonetize object
             if (typeof GameMonetize !== 'undefined' && GameMonetize.showAd) {
                 try {
                     GameMonetize.showAd();
@@ -536,33 +561,18 @@
                     console.log('GameMonetize.showAd error:', e);
                 }
             }
-
-            // Pattern 2: sdk object with showBanner
             if (!adShown && typeof sdk !== 'undefined') {
                 try {
-                    if (sdk.showBanner) {
-                        sdk.showBanner();
-                        adShown = true;
-                        console.log('Showing ad via sdk.showBanner()');
-                    } else if (sdk.showAd) {
-                        sdk.showAd();
-                        adShown = true;
-                        console.log('Showing ad via sdk.showAd()');
-                    }
-                } catch(e) {
-                    console.log('SDK ad error:', e);
-                }
+                    if (sdk.showBanner) { sdk.showBanner(); adShown = true; }
+                    else if (sdk.showAd) { sdk.showAd(); adShown = true; }
+                } catch(e) { console.log('SDK ad error:', e); }
             }
 
-            // Fallback: simulate ad with timeout
-            if (!adShown) {
-                console.log('No ad SDK available - simulating ad delay');
-                setTimeout(() => {
-                    adsWatched++;
-                    document.getElementById('adOverlay').classList.add('hidden');
-                    if (adCallback) adCallback(true);
-                }, 2000); // 2 second simulated ad
-            }
+            // Complete after countdown (5 seconds) regardless of ad
+            setTimeout(() => {
+                clearInterval(adCountdownInterval);
+                finishAd(true);
+            }, 5000);
 
             // Show skip button after 3 seconds
             setTimeout(() => {
@@ -571,28 +581,32 @@
                     skipBtn.style.display = 'block';
                 }
             }, 3000);
+        }
 
-            // Safety timeout - don't leave user stuck
-            setTimeout(() => {
-                if (document.getElementById('adOverlay').classList.contains('hidden') === false) {
-                    console.log('Ad timeout - continuing');
-                    document.getElementById('adOverlay').classList.add('hidden');
-                    if (adCallback) adCallback(true);
-                }
-            }, 10000); // 10 second max wait
+        function finishAd(success) {
+            if (adCountdownInterval) {
+                clearInterval(adCountdownInterval);
+                adCountdownInterval = null;
+            }
+            document.getElementById('adOverlay').classList.add('hidden');
+            document.getElementById('closeAdBtn').style.display = 'none';
+            gamePaused = false; // UNPAUSE THE GAME
+            adsWatched++;
+            if (adCallback) {
+                adCallback(success);
+                adCallback = null;
+            }
         }
 
         // Close ad button handler
         document.getElementById('closeAdBtn')?.addEventListener('click', () => {
-            document.getElementById('adOverlay').classList.add('hidden');
-            document.getElementById('closeAdBtn').style.display = 'none';
-            if (adCallback) adCallback(true);
+            finishAd(true);
         });
 
         function showRewardedAd(onReward) {
             showAd((success) => {
                 if (success && onReward) onReward();
-            });
+            }, true); // true = isRewarded
         }
 
         // Share functionality
@@ -859,11 +873,16 @@
             currentLevel = levelIndex;
             levelGoals = 0;
             const level = levels[currentLevel];
-            document.getElementById('level').textContent = currentLevel + 1;
-            document.getElementById('target').textContent = level.target;
+            document.getElementById('level').textContent = level.suddenDeath ? 'SD' : (currentLevel + 1);
+            document.getElementById('target').textContent = level.suddenDeath ? '∞' : level.target;
             document.getElementById('goals').textContent = '0';
             resetPositions();
             document.getElementById('levelOverlay').classList.add('hidden');
+
+            // Show sudden death announcement
+            if (level.suddenDeath) {
+                document.getElementById('message').textContent = 'SUDDEN DEATH! Score until you drop!';
+            }
         }
 
         function completeLevel() {
@@ -873,13 +892,20 @@
             document.getElementById('totalScore').textContent = totalScore;
 
             if (currentLevel < levels.length - 1) {
-                document.getElementById('levelTitle').textContent = 'LEVEL COMPLETE!';
-                document.getElementById('levelScore').textContent = `+${bonus} points!`;
-                document.getElementById('levelDesc').textContent = levels[currentLevel + 1].desc;
+                const nextLevel = levels[currentLevel + 1];
+                if (nextLevel.suddenDeath) {
+                    document.getElementById('levelTitle').textContent = 'FINAL LEVEL!';
+                    document.getElementById('levelScore').textContent = `+${bonus} points! Total: ${totalScore}`;
+                    document.getElementById('levelDesc').textContent = 'SUDDEN DEATH: Endless mode! Score as many as you can before losing all lives. Your final score = LIMITLESS!';
+                } else {
+                    document.getElementById('levelTitle').textContent = 'LEVEL COMPLETE!';
+                    document.getElementById('levelScore').textContent = `+${bonus} points!`;
+                    document.getElementById('levelDesc').textContent = nextLevel.desc;
+                }
                 document.getElementById('levelOverlay').classList.remove('hidden');
                 gameState = 'levelComplete';
             } else {
-                // Game complete!
+                // This shouldn't happen in Sudden Death but just in case
                 endGame(true);
             }
         }
@@ -887,9 +913,17 @@
         async function endGame(completed) {
             gameState = 'gameOver';
             document.getElementById('finalScore').textContent = totalScore;
-            document.getElementById('gameOverMsg').textContent = completed
-                ? 'INCREDIBLE! You completed all levels!'
-                : `You reached Level ${currentLevel + 1}`;
+
+            const level = levels[currentLevel];
+            let msg;
+            if (level && level.suddenDeath) {
+                msg = `SUDDEN DEATH: ${levelGoals} goals scored!`;
+            } else if (completed) {
+                msg = 'INCREDIBLE! You completed all levels!';
+            } else {
+                msg = `You reached Level ${currentLevel + 1}`;
+            }
+            document.getElementById('gameOverMsg').textContent = msg;
             document.getElementById('gameOverOverlay').classList.remove('hidden');
 
             // Save score and refresh leaderboard
@@ -899,22 +933,35 @@
 
         function handleGoal() {
             levelGoals++;
-            totalScore += 10;
+            const level = levels[currentLevel];
+
+            // Sudden death gives bonus points per goal
+            const goalPoints = level.suddenDeath ? 15 : 10;
+            totalScore += goalPoints;
+
             document.getElementById('goals').textContent = levelGoals;
             document.getElementById('totalScore').textContent = totalScore;
 
-            const level = levels[currentLevel];
             const isFreeKick = level.freeKick;
-            document.getElementById('message').textContent = isFreeKick
-                ? randomMessage(freeKickMessages)
-                : randomMessage(goalMessages);
+            const isSuddenDeath = level.suddenDeath;
+
+            if (isSuddenDeath) {
+                document.getElementById('message').textContent = `GOAL #${levelGoals}! +${goalPoints} pts! Keep going!`;
+            } else {
+                document.getElementById('message').textContent = isFreeKick
+                    ? randomMessage(freeKickMessages)
+                    : randomMessage(goalMessages);
+            }
 
             gameState = 'celebrating';
             salah.celebrating = true;
             salah.celebrateFrame = 0;
 
             setTimeout(() => {
-                if (levelGoals >= level.target) {
+                // In Sudden Death, never complete - just keep playing
+                if (isSuddenDeath) {
+                    resetPositions();
+                } else if (levelGoals >= level.target) {
                     completeLevel();
                 } else {
                     resetPositions();
@@ -1262,7 +1309,7 @@
         }
 
         function updateGame() {
-            if (gameState === 'menu' || gameState === 'levelComplete' || gameState === 'gameOver') return;
+            if (gameState === 'menu' || gameState === 'levelComplete' || gameState === 'gameOver' || gamePaused) return;
 
             // Update shot power
             if (shotCharging) {
