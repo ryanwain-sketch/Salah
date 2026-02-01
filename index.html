@@ -2260,13 +2260,13 @@
                     fkKeeperDiving = true;
                     // Keeper dives based on zone - often wrong for corners!
                     if (fkSelectedZone === 'left') {
-                        // 75% chance keeper dives wrong way for corners
-                        fkKeeperDiveDir = Math.random() < 0.75 ? 1 : -1;
+                        // 80% chance keeper dives wrong way for corners
+                        fkKeeperDiveDir = Math.random() < 0.80 ? 1 : -1;
                     } else if (fkSelectedZone === 'right') {
-                        fkKeeperDiveDir = Math.random() < 0.75 ? -1 : 1;
+                        fkKeeperDiveDir = Math.random() < 0.80 ? -1 : 1;
                     } else {
-                        // Center: keeper stays put 50% of time
-                        if (Math.random() < 0.5) {
+                        // Center: keeper stays put 60% of time
+                        if (Math.random() < 0.6) {
                             fkKeeperDiveDir = 0;
                         } else {
                             fkKeeperDiveDir = Math.random() < 0.5 ? -1 : 1;
@@ -2274,93 +2274,52 @@
                     }
                 }
 
-                // Move keeper towards ball for realistic save animation
+                // Move keeper - but CLAMP to stay on screen!
                 if (fkKeeperDiving && fkKeeperDiveDir !== 0) {
-                    fkKeeperPos.x += fkKeeperDiveDir * 6;
+                    fkKeeperPos.x += fkKeeperDiveDir * 5;
+                    // Keep keeper within goal bounds (posts are ~280 to ~520)
+                    fkKeeperPos.x = Math.max(290, Math.min(510, fkKeeperPos.x));
                 }
 
                 // Check if ball reached goal (only trigger once!)
-                if (fkBallPos.z > 180) {
+                if (fkBallPos.z > 150) {
                     freeKickPhase = 'done';
 
-                    const finalX = fkBallPos.x;
-                    const finalY = fkBallPos.y - fkBallPos.z * 0.3;
+                    // Simpler goal detection - based on where ball is heading
+                    const ballHeadingX = fkBallPos.x;
 
-                    // Goal bounds
-                    const leftPost = 225;
-                    const rightPost = 575;
-                    const crossbar = 125;
-                    const groundLine = 270;
+                    // Goal bounds (wide and forgiving)
+                    const leftPost = 250;
+                    const rightPost = 550;
 
-                    // Check for post/bar hits (rare events)
-                    const hitLeftPost = Math.abs(finalX - leftPost) < 15 && finalY > crossbar && finalY < groundLine;
-                    const hitRightPost = Math.abs(finalX - rightPost) < 15 && finalY > crossbar && finalY < groundLine;
-                    const hitCrossbar = Math.abs(finalY - crossbar) < 15 && finalX > leftPost && finalX < rightPost;
-                    const hitPost = hitLeftPost || hitRightPost;
+                    // Is keeper in the way?
+                    const keeperDist = Math.abs(ballHeadingX - fkKeeperPos.x);
+                    const keeperSaveRange = 50; // Keeper can save within 50px
 
-                    // Determine if goal based on zone and keeper position
-                    const isCorner = fkSelectedZone !== 'center';
-                    const keeperDist = Math.abs(finalX - fkKeeperPos.x);
+                    // Check if ball is heading into goal area
+                    const headingIntoGoal = ballHeadingX > leftPost && ballHeadingX < rightPost;
 
-                    // Keeper save radius - must be close to save
-                    const saveRadius = isCorner ? 40 : 55;
-
-                    // Check if ball is in goal bounds
-                    const inGoal = finalX > leftPost && finalX < rightPost && finalY > crossbar && finalY < groundLine;
-
-                    // Ball goes over
-                    if (finalY < crossbar - 20) {
-                        document.getElementById('message').textContent = 'OVER THE BAR!';
+                    // Simple outcome logic
+                    if (!headingIntoGoal) {
+                        // Missed wide
+                        document.getElementById('message').textContent = ballHeadingX < leftPost ? 'WIDE LEFT!' : 'WIDE RIGHT!';
                         handleMiss(false);
-                    }
-                    // Ball goes wide
-                    else if (finalX < leftPost - 20 || finalX > rightPost + 20) {
-                        document.getElementById('message').textContent = randomMessage(missMessages);
-                        handleMiss(false);
-                    }
-                    // Hit the crossbar
-                    else if (hitCrossbar) {
-                        const rand = Math.random();
-                        if (rand < 0.15) {
-                            // 15% - hits bar and goes IN
-                            document.getElementById('message').textContent = 'OFF THE BAR AND IN!!!';
-                            handleGoal();
-                        } else {
-                            document.getElementById('message').textContent = 'OFF THE CROSSBAR!';
-                            handleMiss(false);
-                        }
-                    }
-                    // Hit the post
-                    else if (hitPost) {
-                        const rand = Math.random();
-                        if (rand < 0.10) {
-                            // 10% - hits post and goes in
-                            document.getElementById('message').textContent = 'OFF THE POST AND IN!!!';
-                            handleGoal();
-                        } else if (rand < 0.13) {
-                            // 3% - hits post, bounces to other post, goes in!
-                            document.getElementById('message').textContent = 'POST TO POST - GOAL!!!';
-                            handleGoal();
-                        } else {
-                            document.getElementById('message').textContent = 'OFF THE POST!';
-                            handleMiss(false);
-                        }
-                    }
-                    // Keeper save - move keeper to ball position for realistic look
-                    else if (inGoal && keeperDist < saveRadius) {
-                        fkKeeperPos.x = finalX; // Keeper reaches the ball
+                    } else if (keeperDist < keeperSaveRange) {
+                        // Keeper saves it
                         document.getElementById('message').textContent = randomMessage(saveMessages);
                         handleMiss(true);
-                    }
-                    // GOAL!
-                    else if (inGoal) {
-                        document.getElementById('message').textContent = randomMessage(freeKickMessages);
+                    } else {
+                        // GOAL! Keeper was wrong way
+                        // Small chance of post/bar drama
+                        const rand = Math.random();
+                        if (rand < 0.05) {
+                            document.getElementById('message').textContent = 'OFF THE POST AND IN!!!';
+                        } else if (rand < 0.08) {
+                            document.getElementById('message').textContent = 'OFF THE BAR AND IN!!!';
+                        } else {
+                            document.getElementById('message').textContent = randomMessage(freeKickMessages);
+                        }
                         handleGoal();
-                    }
-                    // Missed somehow
-                    else {
-                        document.getElementById('message').textContent = randomMessage(missMessages);
-                        handleMiss(false);
                     }
                 }
             }
@@ -2371,48 +2330,21 @@
             fkPower = shotPower;
             const powerPct = fkPower / maxShotPower;
 
-            // Get target position based on selected zone
-            let targetX, targetY;
+            // Simple target based on zone - ball reliably goes where you aim
+            let targetX;
             if (fkSelectedZone === 'left') {
-                targetX = 250 + Math.random() * 50;
-                targetY = 150 + Math.random() * 40;
+                targetX = 300 + Math.random() * 30; // Left side of goal
             } else if (fkSelectedZone === 'right') {
-                targetX = 500 + Math.random() * 50;
-                targetY = 150 + Math.random() * 40;
+                targetX = 470 + Math.random() * 30; // Right side of goal
             } else {
-                targetX = 370 + Math.random() * 60;
-                targetY = 170 + Math.random() * 50;
+                targetX = 385 + Math.random() * 30; // Center
             }
 
-            // Power affects accuracy - 30-70% is optimal range, 55% is sweet spot
-            let accuracyBonus = 0;
-            if (powerPct >= 0.30 && powerPct <= 0.70) {
-                accuracyBonus = 1;
-                // Extra bonus for 50-60% (sweet spot)
-                if (powerPct >= 0.50 && powerPct <= 0.60) {
-                    accuracyBonus = 1.15;
-                }
-            } else if (powerPct < 0.30) {
-                // Too weak - ball won't clear wall well
-                targetY += 40; // Drops lower
-            } else {
-                // Too strong - ball goes higher/over
-                targetY -= 30 + (powerPct - 0.70) * 100; // Goes over more as power increases
-            }
-
-            // Calculate trajectory
+            // Ball velocity - simple and reliable
             const dx = targetX - 400;
-            const dy = targetY - 480;
-
-            // Ball velocity - power affects height, optimal power = better arc
-            const baseZ = 5;
-            const powerZ = powerPct * 5;
-            // Over 70% power makes ball go too high
-            const overPowerPenalty = powerPct > 0.70 ? (powerPct - 0.70) * 8 : 0;
-
-            fkBallVel.x = dx * 0.065;
-            fkBallVel.y = dy * 0.05;
-            fkBallVel.z = baseZ + powerZ + overPowerPenalty;
+            fkBallVel.x = dx * 0.06;
+            fkBallVel.y = -8; // Always moves towards goal
+            fkBallVel.z = 4 + powerPct * 3; // Gentle arc
 
             // Reset ball position
             fkBallPos = { x: 400, y: 480, z: 0 };
