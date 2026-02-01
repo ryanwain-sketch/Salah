@@ -243,7 +243,7 @@
     </div>
 
     <!-- Start Menu Overlay -->
-    <div class="overlay" id="startOverlay">
+    <div class="overlay hidden" id="startOverlay">
         <div class="menu">
             <h2>MO SALAH<br>GOAL MACHINE</h2>
             <p style="color:#fff;font-size:10px;margin:15px 0;">Enter your name:</p>
@@ -279,10 +279,24 @@
             <h2>GAME OVER</h2>
             <p style="color:#ffd700;font-size:16px;margin:15px 0;">Final Score: <span id="finalScore">0</span></p>
             <p style="color:#fff;font-size:10px;margin:15px 0;" id="gameOverMsg"></p>
+            <div style="margin:15px 0;">
+                <p style="color:#fff;font-size:8px;margin-bottom:8px;">SHARE YOUR SCORE:</p>
+                <button onclick="shareScore('twitter')" style="padding:8px 12px;font-size:10px;margin:3px;">🐦 Twitter</button>
+                <button onclick="shareScore('whatsapp')" style="padding:8px 12px;font-size:10px;margin:3px;background:#25D366;">💬 WhatsApp</button>
+                <button onclick="shareScore('copy')" style="padding:8px 12px;font-size:10px;margin:3px;background:#666;">📋 Copy</button>
+            </div>
             <button id="continueAdBtn" style="background:linear-gradient(145deg,#22c55e,#16a34a);">📺 WATCH AD TO CONTINUE</button>
             <button id="playAgainBtn">PLAY AGAIN</button>
             <button id="mainMenuBtn">MAIN MENU</button>
             <div class="leaderboard" id="gameOverLeaderboard"></div>
+        </div>
+    </div>
+
+    <!-- Intro Overlay -->
+    <div class="overlay" id="introOverlay">
+        <div style="text-align:center;">
+            <canvas id="introCanvas" width="400" height="300" style="border-radius:8px;"></canvas>
+            <p style="color:#ffd700;font-size:12px;margin-top:15px;font-family:'Press Start 2P',monospace;">TAP OR PRESS ANY KEY TO SKIP</p>
         </div>
     </div>
 
@@ -457,7 +471,7 @@
             container.innerHTML = html;
         }
 
-        // GameMonetize Ads
+        // GameMonetize Ads - Fixed SDK integration
         const GAME_ID = '4kci7og3klgj0ivy2wz3gdvd9dth5e7n';
         let adCallback = null;
         let adsWatched = 0;
@@ -466,25 +480,32 @@
             adCallback = onComplete;
             document.getElementById('adOverlay').classList.remove('hidden');
 
-            if (typeof sdk !== 'undefined' && sdk.showBanner) {
-                sdk.showBanner({
-                    게임_id: GAME_ID,
-                    게임_distribution: true
-                }).then(() => {
-                    adsWatched++;
-                    document.getElementById('adOverlay').classList.add('hidden');
-                    if (adCallback) adCallback(true);
-                }).catch(() => {
-                    document.getElementById('adOverlay').classList.add('hidden');
-                    if (adCallback) adCallback(false);
-                });
+            // Try GameMonetize SDK
+            if (typeof sdk !== 'undefined') {
+                try {
+                    sdk.showAd('interstitial', GAME_ID).then(() => {
+                        adsWatched++;
+                        document.getElementById('adOverlay').classList.add('hidden');
+                        if (adCallback) adCallback(true);
+                    }).catch((err) => {
+                        console.log('Ad error:', err);
+                        document.getElementById('adOverlay').classList.add('hidden');
+                        if (adCallback) adCallback(true); // Continue anyway
+                    });
+                } catch(e) {
+                    // Fallback
+                    setTimeout(() => {
+                        document.getElementById('adOverlay').classList.add('hidden');
+                        if (adCallback) adCallback(true);
+                    }, 1000);
+                }
             } else {
-                // Fallback: simulate ad for testing
+                // No SDK - continue after brief pause
                 setTimeout(() => {
                     adsWatched++;
                     document.getElementById('adOverlay').classList.add('hidden');
                     if (adCallback) adCallback(true);
-                }, 1500);
+                }, 1000);
             }
         }
 
@@ -493,6 +514,58 @@
                 if (success && onReward) onReward();
             });
         }
+
+        // Share functionality
+        const GAME_URL = 'https://ryanwain-sketch.github.io/Salah/';
+
+        function shareScore(platform) {
+            const text = `I scored ${totalScore} points in Mo Salah Goal Machine! Can you beat me? 🏆⚽`;
+            const url = GAME_URL;
+
+            switch(platform) {
+                case 'twitter':
+                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
+                    break;
+                case 'whatsapp':
+                    window.open(`https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}`, '_blank');
+                    break;
+                case 'facebook':
+                    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(text)}`, '_blank');
+                    break;
+                case 'copy':
+                    navigator.clipboard.writeText(text + ' ' + url).then(() => {
+                        alert('Link copied! Share it with friends!');
+                    });
+                    break;
+            }
+        }
+
+        // Tips system
+        const tips = [
+            "TIP: Hold SHOOT longer for more power, but careful - too much goes over!",
+            "TIP: Move unpredictably to dodge defenders!",
+            "TIP: Shoot when defenders are far away!",
+            "TIP: In free kicks, aim for the corners!",
+            "TIP: Medium power (yellow bar) is often best!",
+            "TIP: Watch the keeper's position before shooting!",
+            "TIP: You can earn extra lives by watching ads!",
+            "TIP: Share your score to challenge friends!"
+        ];
+        let currentTip = 0;
+        let tipTimer = 0;
+
+        function getNextTip() {
+            const tip = tips[currentTip];
+            currentTip = (currentTip + 1) % tips.length;
+            return tip;
+        }
+
+        // Intro scene state
+        let introActive = true;
+        let introFrame = 0;
+        let introBallX = 100;
+        let introBallY = 250;
+        let introPhase = 'run'; // run, kick, goal, celebrate
 
         // Input handling
         const keys = {};
@@ -1247,9 +1320,147 @@
             drawPowerMeter();
             drawBendMeter();
             drawCelebration();
+            drawTip();
 
             requestAnimationFrame(gameLoop);
         }
+
+        // Draw tips at bottom of screen
+        function drawTip() {
+            if (gameState === 'playing' || gameState === 'freeKick') {
+                tipTimer++;
+                if (tipTimer > 600) { // Change tip every 10 seconds
+                    tipTimer = 0;
+                    currentTip = (currentTip + 1) % tips.length;
+                }
+
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(0, canvas.height - 25, canvas.width, 25);
+                ctx.fillStyle = '#ffd700';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(tips[currentTip], canvas.width / 2, canvas.height - 8);
+                ctx.textAlign = 'left';
+            }
+        }
+
+        // Intro scene
+        const introCanvas = document.getElementById('introCanvas');
+        const introCtx = introCanvas ? introCanvas.getContext('2d') : null;
+
+        function drawIntroScene() {
+            if (!introCtx) return;
+            introCtx.fillStyle = '#2d5a27';
+            introCtx.fillRect(0, 0, 400, 300);
+
+            // Grass stripes
+            introCtx.fillStyle = '#347a2c';
+            for (let i = 0; i < 400; i += 40) introCtx.fillRect(i, 0, 20, 300);
+
+            // Goal
+            introCtx.fillStyle = '#fff';
+            introCtx.fillRect(350, 100, 5, 100);
+            introCtx.fillRect(350, 100, 40, 5);
+            introCtx.fillRect(350, 195, 40, 5);
+
+            // Draw pixel Salah based on phase
+            const salahX = Math.min(introBallX - 20, 280);
+
+            if (introPhase === 'run' || introPhase === 'kick') {
+                // Running Salah
+                const bounce = Math.sin(introFrame * 0.3) * 3;
+                introCtx.fillStyle = '#1a1a1a';
+                introCtx.fillRect(salahX + 4, 135 + bounce, 16, 8);
+                introCtx.fillStyle = '#c68642';
+                introCtx.fillRect(salahX + 6, 140 + bounce, 12, 12);
+                introCtx.fillStyle = '#c8102e';
+                introCtx.fillRect(salahX + 4, 152 + bounce, 16, 14);
+                introCtx.fillStyle = '#c68642';
+                introCtx.fillRect(salahX + 6, 166 + bounce, 5, 8);
+                introCtx.fillRect(salahX + 13, 166 + bounce, 5, 8);
+            }
+
+            if (introPhase === 'celebrate') {
+                // Celebrating Salah - arms up
+                const jump = Math.sin(introFrame * 0.2) * 5;
+                introCtx.fillStyle = '#1a1a1a';
+                introCtx.fillRect(salahX + 4, 130 - jump, 16, 8);
+                introCtx.fillStyle = '#c68642';
+                introCtx.fillRect(salahX + 6, 135 - jump, 12, 12);
+                introCtx.fillStyle = '#c8102e';
+                introCtx.fillRect(salahX + 4, 147 - jump, 16, 14);
+                introCtx.fillRect(salahX, 140 - jump, 6, 12);
+                introCtx.fillRect(salahX + 18, 140 - jump, 6, 12);
+            }
+
+            // Ball
+            introCtx.fillStyle = '#fff';
+            introCtx.beginPath();
+            introCtx.arc(introBallX, introBallY, 6, 0, Math.PI * 2);
+            introCtx.fill();
+
+            // Keeper (Alisson)
+            introCtx.fillStyle = '#32CD32';
+            introCtx.fillRect(340, 135, 12, 30);
+            introCtx.fillStyle = '#d4a574';
+            introCtx.fillRect(342, 128, 8, 10);
+
+            // Title
+            introCtx.fillStyle = '#c8102e';
+            introCtx.font = 'bold 20px monospace';
+            introCtx.textAlign = 'center';
+            introCtx.fillText('MO SALAH', 200, 40);
+            introCtx.fillStyle = '#ffd700';
+            introCtx.font = '14px monospace';
+            introCtx.fillText('GOAL MACHINE', 200, 60);
+            introCtx.textAlign = 'left';
+
+            if (introPhase === 'goal') {
+                introCtx.fillStyle = '#ffd700';
+                introCtx.font = 'bold 24px monospace';
+                introCtx.textAlign = 'center';
+                introCtx.fillText('GOAL!', 200, 250);
+                introCtx.textAlign = 'left';
+            }
+        }
+
+        function updateIntro() {
+            introFrame++;
+
+            if (introPhase === 'run') {
+                introBallX += 3;
+                if (introBallX > 300) introPhase = 'kick';
+            } else if (introPhase === 'kick') {
+                introBallX += 8;
+                introBallY += Math.sin(introFrame * 0.1) * 2;
+                if (introBallX > 360) {
+                    introPhase = 'goal';
+                    setTimeout(() => { introPhase = 'celebrate'; }, 500);
+                }
+            } else if (introPhase === 'celebrate') {
+                if (introFrame > 180) {
+                    skipIntro();
+                }
+            }
+        }
+
+        function introLoop() {
+            if (!introActive) return;
+            updateIntro();
+            drawIntroScene();
+            requestAnimationFrame(introLoop);
+        }
+
+        function skipIntro() {
+            introActive = false;
+            document.getElementById('introOverlay').classList.add('hidden');
+            document.getElementById('startOverlay').classList.remove('hidden');
+        }
+
+        // Skip intro on click/key
+        document.addEventListener('keydown', () => { if (introActive) skipIntro(); }, { once: false });
+        document.addEventListener('click', () => { if (introActive) skipIntro(); }, { once: false });
+        document.addEventListener('touchstart', () => { if (introActive) skipIntro(); }, { once: false });
 
         // Menu handlers
         document.getElementById('startBtn').addEventListener('click', () => {
@@ -1306,7 +1517,9 @@
         });
 
         // Initialize
+        document.getElementById('startOverlay').classList.add('hidden'); // Hide until intro done
         displayLeaderboard('leaderboard');
+        introLoop(); // Start intro
         gameLoop();
     </script>
 </body>
