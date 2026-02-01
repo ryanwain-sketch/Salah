@@ -1322,9 +1322,13 @@
                 if (deathCount % 3 === 0) {
                     setTimeout(() => {
                         showAd(() => {
-                            gamePaused = true;
-                            document.getElementById('pauseBtn').textContent = '▶';
-                            document.getElementById('message').textContent = 'Tap ▶ when ready!';
+                            // Reset positions FIRST, then pause
+                            resetPositions();
+                            setTimeout(() => {
+                                gamePaused = true;
+                                document.getElementById('pauseBtn').textContent = '▶';
+                                document.getElementById('message').textContent = 'Tap anywhere to play!';
+                            }, 50);
                         });
                     }, 1500);
                 } else {
@@ -1350,9 +1354,13 @@
                 if (deathCount % 3 === 0) {
                     setTimeout(() => {
                         showAd(() => {
-                            gamePaused = true;
-                            document.getElementById('pauseBtn').textContent = '▶';
-                            document.getElementById('message').textContent = 'Tap ▶ when ready!';
+                            // Reset positions FIRST, then pause
+                            resetPositions();
+                            setTimeout(() => {
+                                gamePaused = true;
+                                document.getElementById('pauseBtn').textContent = '▶';
+                                document.getElementById('message').textContent = 'Tap anywhere to play!';
+                            }, 50);
                         });
                     }, 1500);
                 } else {
