@@ -177,26 +177,47 @@
             flex-shrink: 0;
         }
 
-        /* Landscape mobile - put controls on sides */
+        /* Landscape mobile - controls on OPPOSITE sides for two-handed play */
         @media (orientation: landscape) and (max-height: 500px) {
             .game-container {
                 flex-direction: row;
                 padding: 5px;
+                justify-content: space-between;
+            }
+            #canvasWrapper {
+                order: 2;
+                flex: 1;
+                max-width: calc(100% - 180px);
             }
             .mobile-controls {
-                flex-direction: column;
-                width: auto;
-                height: 100%;
-                margin: 0 10px;
-                justify-content: center;
-                gap: 20px;
+                display: flex !important;
+                flex-direction: row;
+                width: 100%;
+                height: auto;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                justify-content: space-between;
+                padding: 10px 20px;
+                background: transparent;
+                pointer-events: none;
+            }
+            .mobile-controls > * {
+                pointer-events: auto;
+            }
+            .joystick-area {
+                order: 1; /* LEFT side */
+            }
+            .shoot-btn {
+                order: 2; /* RIGHT side */
             }
             h1, .score-board, .message, .instructions {
                 position: absolute;
             }
-            h1 { top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; }
-            .score-board { top: 5px; right: 10px; font-size: 8px; gap: 10px; }
-            .message { bottom: 5px; left: 50%; transform: translateX(-50%); font-size: 8px; }
+            h1 { top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; z-index: 10; }
+            .score-board { top: 5px; right: 10px; font-size: 8px; gap: 10px; z-index: 10; }
+            .message { top: 25px; left: 50%; transform: translateX(-50%); font-size: 8px; z-index: 10; }
         }
 
         /* Portrait mobile - stack vertically */
@@ -528,14 +549,20 @@
         let totalScore = 0;
         let lives = 5;
         let playerName = '';
-        let gameState = 'menu'; // menu, playing, shooting, celebrating, saved, tackled, freeKick, bendSelect, gameOver
+        let gameState = 'menu'; // menu, playing, shooting, celebrating, saved, tackled, freeKick, gameOver
         let gamePaused = false; // Pause game during ads/overlays
 
-        // Free kick state
-        let freeKickPhase = 'aim'; // aim, bend
-        let bendAmount = 0;
-        let bendDirection = 1;
+        // Free kick state - FPV (First Person View) system
+        let freeKickPhase = 'aim'; // aim, power, flying
+        let fkTarget = { x: 400, y: 200 }; // Where you're aiming (screen coords)
+        let fkBallPos = { x: 400, y: 450, z: 0 }; // Ball 3D position for animation
+        let fkBallVel = { x: 0, y: 0, z: 0 };
+        let fkPower = 0;
+        let fkCurve = 0;
         let wallPlayers = [];
+        let fkKeeperPos = { x: 400, y: 180 }; // Keeper position in FPV
+        let fkKeeperDiving = false;
+        let fkKeeperDiveDir = 0;
 
         // Salah (player)
         const salah = {
@@ -861,7 +888,7 @@
             "TIP: Hold SHOOT longer for more power, but careful - too much goes over!",
             "TIP: Move unpredictably to dodge defenders!",
             "TIP: Shoot when defenders are far away!",
-            "TIP: In free kicks, aim for the corners!",
+            "TIP: In free kicks, aim high for top corner screamers!",
             "TIP: Medium power (yellow bar) is often best!",
             "TIP: Watch the keeper's position before shooting!",
             "TIP: You can earn extra lives by watching ads!",
@@ -944,9 +971,6 @@
                 startCharging();
             } else if (gameState === 'freeKick' && freeKickPhase === 'aim' && !shotCharging) {
                 startCharging();
-            } else if (gameState === 'bendSelect') {
-                // Confirm bend and shoot
-                shootFreeKick();
             }
         }
 
@@ -955,11 +979,8 @@
                 if (gameState === 'playing' && salah.hasBall) {
                     shootBall(shotPower);
                 } else if (gameState === 'freeKick' && freeKickPhase === 'aim') {
-                    // Move to bend selection
-                    freeKickPhase = 'bend';
-                    gameState = 'bendSelect';
-                    bendAmount = 50;
-                    document.getElementById('message').textContent = 'Choose BEND! Press SHOOT to confirm!';
+                    // FPV: Shoot directly with current power and target
+                    shootFPVFreeKick();
                 }
                 shotCharging = false;
                 shotPower = 0;
@@ -1050,7 +1071,16 @@
                 gameState = 'freeKick';
                 freeKickPhase = 'aim';
                 setupWall(level.wallSize || 4);
-                document.getElementById('message').textContent = 'Hold SHOOT for power!';
+                // Reset FPV state
+                fkTarget = { x: 400, y: 200 };
+                fkBallPos = { x: 400, y: 480, z: 0 };
+                fkBallVel = { x: 0, y: 0, z: 0 };
+                fkKeeperPos = { x: 400, y: 180 };
+                fkKeeperDiving = false;
+                fkKeeperDiveDir = 0;
+                fkPower = 0;
+                fkCurve = 0;
+                document.getElementById('message').textContent = 'AIM with joystick, HOLD SHOOT for power!';
             } else {
                 salah.x = 200;
                 salah.y = 250;
@@ -1519,6 +1549,348 @@
             }
         }
 
+        // ========== FPV FREE KICK SYSTEM ==========
+        function drawFPVFreeKick() {
+            // Sky gradient
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, 250);
+            skyGrad.addColorStop(0, '#1a1a3e');
+            skyGrad.addColorStop(1, '#2d4a6e');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, canvas.width, 250);
+
+            // Stadium lights glow
+            ctx.fillStyle = 'rgba(255,255,200,0.1)';
+            ctx.beginPath();
+            ctx.arc(200, 50, 80, 0, Math.PI * 2);
+            ctx.arc(600, 50, 80, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Pitch - perspective
+            const pitchGrad = ctx.createLinearGradient(0, 250, 0, 500);
+            pitchGrad.addColorStop(0, '#2d5a27');
+            pitchGrad.addColorStop(1, '#1d4a17');
+            ctx.fillStyle = pitchGrad;
+            ctx.fillRect(0, 250, canvas.width, 250);
+
+            // Pitch stripes (perspective)
+            ctx.fillStyle = '#347a2c';
+            for (let i = 0; i < 8; i++) {
+                const y1 = 250 + i * 30;
+                const y2 = 250 + (i + 1) * 30;
+                if (i % 2 === 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y1);
+                    ctx.lineTo(canvas.width, y1);
+                    ctx.lineTo(canvas.width, y2);
+                    ctx.lineTo(0, y2);
+                    ctx.fill();
+                }
+            }
+
+            // Goal frame (perspective - larger at bottom)
+            const goalTop = 120;
+            const goalBottom = 280;
+            const goalLeft = 200;
+            const goalRight = 600;
+            const goalTopLeft = 280;
+            const goalTopRight = 520;
+
+            // Goal net
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 10; i++) {
+                const x1 = goalTopLeft + (goalLeft - goalTopLeft) * (i / 10);
+                const x2 = goalTopRight + (goalRight - goalTopRight) * (i / 10);
+                const y = goalTop + (goalBottom - goalTop) * (i / 10);
+                ctx.beginPath();
+                ctx.moveTo(x1, y);
+                ctx.lineTo(x2, y);
+                ctx.stroke();
+            }
+            for (let i = 0; i <= 8; i++) {
+                const topX = goalTopLeft + (goalTopRight - goalTopLeft) * (i / 8);
+                const botX = goalLeft + (goalRight - goalLeft) * (i / 8);
+                ctx.beginPath();
+                ctx.moveTo(topX, goalTop);
+                ctx.lineTo(botX, goalBottom);
+                ctx.stroke();
+            }
+
+            // Goal posts
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 8;
+            ctx.beginPath();
+            ctx.moveTo(goalTopLeft, goalTop);
+            ctx.lineTo(goalLeft, goalBottom);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(goalTopRight, goalTop);
+            ctx.lineTo(goalRight, goalBottom);
+            ctx.stroke();
+            // Crossbar
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(goalTopLeft, goalTop);
+            ctx.lineTo(goalTopRight, goalTop);
+            ctx.stroke();
+
+            // Keeper (Alisson) - FPV view
+            const keeperX = fkKeeperPos.x;
+            const keeperY = fkKeeperPos.y;
+            if (fkKeeperDiving) {
+                // Diving keeper
+                ctx.fillStyle = '#32CD32';
+                ctx.fillRect(keeperX - 25 + fkKeeperDiveDir * 30, keeperY, 50, 20);
+                ctx.fillStyle = '#d4a574';
+                ctx.fillRect(keeperX - 10 + fkKeeperDiveDir * 40, keeperY - 5, 15, 15);
+                ctx.fillStyle = '#FFD700';
+                ctx.fillRect(keeperX - 30 + fkKeeperDiveDir * 50, keeperY, 12, 12);
+            } else {
+                // Standing keeper
+                ctx.fillStyle = '#32CD32';
+                ctx.fillRect(keeperX - 15, keeperY, 30, 50);
+                ctx.fillStyle = '#d4a574';
+                ctx.fillRect(keeperX - 10, keeperY - 15, 20, 20);
+                ctx.fillStyle = '#FFD700';
+                ctx.fillRect(keeperX - 25, keeperY + 10, 12, 15);
+                ctx.fillRect(keeperX + 13, keeperY + 10, 12, 15);
+            }
+
+            // Wall of defenders (facing camera!)
+            const wallY = 320;
+            const level = levels[currentLevel];
+            const wallSize = level.wallSize || 3;
+            const wallSpacing = 45;
+            const wallStartX = 400 - ((wallSize - 1) * wallSpacing) / 2;
+
+            for (let i = 0; i < wallSize; i++) {
+                const wx = wallStartX + i * wallSpacing;
+                // Body (facing us)
+                ctx.fillStyle = '#c8102e';
+                ctx.fillRect(wx - 18, wallY, 36, 45);
+                // Head
+                ctx.fillStyle = '#d4a574';
+                ctx.fillRect(wx - 12, wallY - 18, 24, 22);
+                // Hair
+                ctx.fillStyle = '#1a1a1a';
+                ctx.fillRect(wx - 12, wallY - 18, 24, 8);
+                // Eyes (looking at ball nervously)
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(wx - 8, wallY - 8, 7, 5);
+                ctx.fillRect(wx + 1, wallY - 8, 7, 5);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(wx - 5, wallY - 7, 3, 3);
+                ctx.fillRect(wx + 4, wallY - 7, 3, 3);
+                // Hands covering... area
+                ctx.fillStyle = '#d4a574';
+                ctx.fillRect(wx - 10, wallY + 30, 20, 12);
+                // Legs
+                ctx.fillStyle = '#c8102e';
+                ctx.fillRect(wx - 14, wallY + 45, 12, 20);
+                ctx.fillRect(wx + 2, wallY + 45, 12, 20);
+            }
+
+            // Player lying BEHIND the wall
+            ctx.fillStyle = '#c8102e';
+            ctx.fillRect(340, wallY + 65, 50, 12);
+            ctx.fillStyle = '#d4a574';
+            ctx.fillRect(330, wallY + 63, 12, 12);
+
+            // Target reticle (where you're aiming)
+            if (freeKickPhase === 'aim') {
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(fkTarget.x, fkTarget.y, 20, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(fkTarget.x - 30, fkTarget.y);
+                ctx.lineTo(fkTarget.x - 10, fkTarget.y);
+                ctx.moveTo(fkTarget.x + 10, fkTarget.y);
+                ctx.lineTo(fkTarget.x + 30, fkTarget.y);
+                ctx.moveTo(fkTarget.x, fkTarget.y - 30);
+                ctx.lineTo(fkTarget.x, fkTarget.y - 10);
+                ctx.moveTo(fkTarget.x, fkTarget.y + 10);
+                ctx.lineTo(fkTarget.x, fkTarget.y + 30);
+                ctx.stroke();
+
+                // Hint text based on target position
+                let hint = '';
+                if (fkTarget.y < 180) hint = 'TOP CORNER - SCREAMER!';
+                else if (fkTarget.y > 240) hint = 'LOW & HARD';
+                else hint = 'MID HEIGHT';
+
+                if (fkTarget.x < 350) hint += ' (CURL LEFT)';
+                else if (fkTarget.x > 450) hint += ' (CURL RIGHT)';
+
+                ctx.fillStyle = '#ffd700';
+                ctx.font = '12px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(hint, 400, 80);
+                ctx.fillText('MOVE TO AIM - HOLD SHOOT FOR POWER', 400, 470);
+                ctx.textAlign = 'left';
+            }
+
+            // Power meter (when charging)
+            if (shotCharging && freeKickPhase === 'aim') {
+                const pw = 200;
+                const ph = 20;
+                const px = 300;
+                const py = 430;
+                const fill = (shotPower / maxShotPower) * pw;
+
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(px - 5, py - 5, pw + 10, ph + 10);
+
+                const powerPct = shotPower / maxShotPower;
+                ctx.fillStyle = powerPct < 0.4 ? '#4ade80' : powerPct < 0.7 ? '#fbbf24' : '#ef4444';
+                ctx.fillRect(px, py, fill, ph);
+
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(px, py, pw, ph);
+
+                ctx.fillStyle = '#fff';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('POWER', 400, py - 10);
+                if (powerPct < 0.4) ctx.fillText('LOW - AROUND WALL', 400, py + 40);
+                else if (powerPct < 0.7) ctx.fillText('MEDIUM - DIPPING', 400, py + 40);
+                else ctx.fillText('HIGH - OVER WALL', 400, py + 40);
+                ctx.textAlign = 'left';
+            }
+
+            // Ball in flight
+            if (freeKickPhase === 'flying') {
+                const ballSize = 15 - fkBallPos.z * 0.03;
+                const ballScreenX = fkBallPos.x;
+                const ballScreenY = fkBallPos.y - fkBallPos.z * 0.5;
+
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(ballScreenX, ballScreenY, Math.max(ballSize, 3), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#333';
+                ctx.beginPath();
+                ctx.arc(ballScreenX - 2, ballScreenY - 2, ballSize * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Ball at feet (before shot)
+            if (freeKickPhase === 'aim') {
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(400, 480, 12, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#333';
+                ctx.beginPath();
+                ctx.arc(396, 476, 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function updateFPVFreeKick() {
+            const level = levels[currentLevel];
+
+            // Move target with joystick/keys
+            if (freeKickPhase === 'aim') {
+                const moveSpeed = 4;
+                if (keys['arrowleft'] || keys['a']) fkTarget.x -= moveSpeed;
+                if (keys['arrowright'] || keys['d']) fkTarget.x += moveSpeed;
+                if (keys['arrowup'] || keys['w']) fkTarget.y -= moveSpeed;
+                if (keys['arrowdown'] || keys['s']) fkTarget.y += moveSpeed;
+
+                if (touchMove.x !== 0 || touchMove.y !== 0) {
+                    fkTarget.x += touchMove.x * moveSpeed;
+                    fkTarget.y += touchMove.y * moveSpeed;
+                }
+
+                // Clamp target to goal area
+                fkTarget.x = Math.max(220, Math.min(580, fkTarget.x));
+                fkTarget.y = Math.max(130, Math.min(270, fkTarget.y));
+            }
+
+            // Ball in flight physics
+            if (freeKickPhase === 'flying') {
+                fkBallPos.x += fkBallVel.x;
+                fkBallPos.y += fkBallVel.y;
+                fkBallPos.z += fkBallVel.z;
+
+                // Apply curve
+                fkBallVel.x += fkCurve * 0.1;
+
+                // Gravity effect on arc
+                if (fkBallVel.z > 0) {
+                    fkBallVel.z -= 0.15;
+                }
+
+                // Keeper reaction
+                if (!fkKeeperDiving && fkBallPos.z > 50) {
+                    fkKeeperDiving = true;
+                    // Keeper dives - sometimes wrong way!
+                    const targetX = fkTarget.x + fkCurve * 50;
+                    fkKeeperDiveDir = targetX < 400 ? -1 : 1;
+                    // 30% chance keeper guesses wrong
+                    if (Math.random() < 0.3) fkKeeperDiveDir *= -1;
+                }
+
+                if (fkKeeperDiving) {
+                    fkKeeperPos.x += fkKeeperDiveDir * 8;
+                }
+
+                // Check if ball reached goal
+                if (fkBallPos.z > 200) {
+                    const finalX = fkBallPos.x;
+                    const finalY = fkBallPos.y - fkBallPos.z * 0.3;
+
+                    // Check if keeper saved it
+                    const keeperDist = Math.abs(finalX - fkKeeperPos.x);
+                    const heightFactor = fkTarget.y < 160 ? 1.5 : 1; // Top corners harder to save
+
+                    // Check wall hit (low shots)
+                    const hitWall = fkPower < 40 && Math.abs(finalX - 400) < 80 && finalY > 300;
+
+                    if (hitWall) {
+                        document.getElementById('message').textContent = 'BLOCKED BY THE WALL!';
+                        handleMiss(false);
+                    } else if (keeperDist < 60 / heightFactor && Math.random() > 0.3) {
+                        document.getElementById('message').textContent = randomMessage(saveMessages);
+                        handleMiss(true);
+                    } else if (finalX < 220 || finalX > 580 || finalY < 120 || finalY > 280) {
+                        document.getElementById('message').textContent = randomMessage(missMessages);
+                        handleMiss(false);
+                    } else {
+                        // GOAL!
+                        document.getElementById('message').textContent = randomMessage(freeKickMessages);
+                        handleGoal();
+                    }
+                }
+            }
+        }
+
+        function shootFPVFreeKick() {
+            freeKickPhase = 'flying';
+            fkPower = shotPower;
+
+            // Calculate trajectory based on target and power
+            const dx = fkTarget.x - 400;
+            const dy = fkTarget.y - 480;
+
+            // Curve based on horizontal target offset
+            fkCurve = dx * 0.02;
+
+            // Ball velocity
+            fkBallVel.x = dx * 0.08;
+            fkBallVel.y = dy * 0.06;
+            fkBallVel.z = 5 + (fkPower / maxShotPower) * 8; // Height based on power
+
+            // Reset ball position
+            fkBallPos = { x: 400, y: 480, z: 0 };
+
+            shotCharging = false;
+            shotPower = 0;
+        }
+
         function drawCelebration() {
             if (gameState === 'celebrating') {
                 ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
@@ -1536,12 +1908,6 @@
             // Update shot power
             if (shotCharging) {
                 shotPower = Math.min(maxShotPower, (Date.now() - chargeStartTime) / 10);
-            }
-
-            // Update bend oscillation
-            if (gameState === 'bendSelect') {
-                bendAmount += bendDirection * 1.5;
-                if (bendAmount >= 100 || bendAmount <= 0) bendDirection *= -1;
             }
 
             const level = levels[currentLevel];
@@ -1632,7 +1998,7 @@
                 alisson.diveFrame++;
                 const targetY = Math.max(goal.y, Math.min(goal.y + goal.height - alisson.height, alisson.targetY));
                 alisson.y += (targetY - alisson.y) * 0.15;
-            } else if (gameState === 'playing' || gameState === 'freeKick' || gameState === 'bendSelect') {
+            } else if (gameState === 'playing') {
                 const targetY = ball.y - alisson.height / 2;
                 const clampedTarget = Math.max(goal.y, Math.min(goal.y + goal.height - alisson.height, targetY));
                 alisson.y += (clampedTarget - alisson.y) * level.keeperSpeed;
@@ -1646,30 +2012,36 @@
             updateGame();
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawField();
 
             const level = levels[currentLevel];
 
-            // Draw wall for free kicks
-            if (level?.freeKick && wallPlayers.length > 0) {
-                drawWall();
-            }
+            // FPV mode for free kicks
+            if (level?.freeKick && (gameState === 'freeKick' || freeKickPhase === 'flying')) {
+                // Update FPV free kick logic
+                updateFPVFreeKick();
+                // Draw FPV view
+                drawFPVFreeKick();
+                // Draw celebration overlay if celebrating
+                drawCelebration();
+            } else {
+                // Normal game view
+                drawField();
 
-            // Draw defenders
-            if (level && !level.freeKick) {
-                level.defenders.forEach(defName => {
-                    const def = defenders[defName];
-                    if (def) drawDefender(def.x, def.y, def.number, def.skin);
-                });
-            }
+                // Draw defenders
+                if (level && !level.freeKick) {
+                    level.defenders.forEach(defName => {
+                        const def = defenders[defName];
+                        if (def) drawDefender(def.x, def.y, def.number, def.skin);
+                    });
+                }
 
-            drawSalah(salah.x, salah.y);
-            drawAlisson(alisson.x, alisson.y, alisson.diving, alisson.diveDirection);
-            drawBall();
-            drawPowerMeter();
-            drawBendMeter();
-            drawCelebration();
-            drawTip();
+                drawSalah(salah.x, salah.y);
+                drawAlisson(alisson.x, alisson.y, alisson.diving, alisson.diveDirection);
+                drawBall();
+                drawPowerMeter();
+                drawCelebration();
+                drawTip();
+            }
 
             requestAnimationFrame(gameLoop);
         }
@@ -1697,6 +2069,9 @@
         const introCanvas = document.getElementById('introCanvas');
         const introCtx = introCanvas ? introCanvas.getContext('2d') : null;
 
+        let introKeeperY = 150; // Keeper position for diving
+        let introKeeperDiving = false;
+
         function drawIntroScene() {
             if (!introCtx) return;
             introCtx.fillStyle = '#2d5a27';
@@ -1706,11 +2081,27 @@
             introCtx.fillStyle = '#347a2c';
             for (let i = 0; i < 400; i += 40) introCtx.fillRect(i, 0, 20, 300);
 
-            // Goal
+            // Goal posts
             introCtx.fillStyle = '#fff';
-            introCtx.fillRect(350, 100, 5, 100);
-            introCtx.fillRect(350, 100, 40, 5);
-            introCtx.fillRect(350, 195, 40, 5);
+            introCtx.fillRect(350, 100, 6, 100); // Left post
+            introCtx.fillRect(350, 100, 45, 6);   // Crossbar
+            introCtx.fillRect(350, 194, 45, 6);   // Bottom bar
+
+            // Net (behind goal)
+            introCtx.strokeStyle = 'rgba(255,255,255,0.4)';
+            introCtx.lineWidth = 1;
+            for (let i = 105; i < 195; i += 10) {
+                introCtx.beginPath();
+                introCtx.moveTo(356, i);
+                introCtx.lineTo(390, i);
+                introCtx.stroke();
+            }
+            for (let i = 360; i < 395; i += 10) {
+                introCtx.beginPath();
+                introCtx.moveTo(i, 105);
+                introCtx.lineTo(i, 195);
+                introCtx.stroke();
+            }
 
             // Draw pixel Salah based on phase
             const salahX = Math.min(introBallX - 20, 280);
@@ -1729,30 +2120,61 @@
                 introCtx.fillRect(salahX + 13, 166 + bounce, 5, 8);
             }
 
-            if (introPhase === 'celebrate') {
-                // Celebrating Salah - arms up
-                const jump = Math.sin(introFrame * 0.2) * 5;
+            if (introPhase === 'goal' || introPhase === 'celebrate') {
+                // Celebrating Salah - sliding on knees with arms up
+                const pump = Math.sin(introFrame * 0.15) * 3;
                 introCtx.fillStyle = '#1a1a1a';
-                introCtx.fillRect(salahX + 4, 130 - jump, 16, 8);
+                introCtx.fillRect(salahX + 4, 145, 16, 8); // Hair
                 introCtx.fillStyle = '#c68642';
-                introCtx.fillRect(salahX + 6, 135 - jump, 12, 12);
+                introCtx.fillRect(salahX + 6, 150, 12, 12); // Face
                 introCtx.fillStyle = '#c8102e';
-                introCtx.fillRect(salahX + 4, 147 - jump, 16, 14);
-                introCtx.fillRect(salahX, 140 - jump, 6, 12);
-                introCtx.fillRect(salahX + 18, 140 - jump, 6, 12);
+                introCtx.fillRect(salahX + 4, 162, 16, 14); // Body
+                // Arms raised in celebration
+                introCtx.fillRect(salahX - 4, 150 - pump, 8, 14);
+                introCtx.fillRect(salahX + 20, 150 + pump, 8, 14);
+                // Kneeling legs
+                introCtx.fillStyle = '#c68642';
+                introCtx.fillRect(salahX + 4, 176, 16, 6);
             }
 
-            // Ball
+            // Keeper (Alisson) - diving/defeated
+            if (introPhase === 'goal' || introPhase === 'celebrate') {
+                // Alisson on knees, defeated
+                introCtx.fillStyle = '#32CD32';
+                introCtx.fillRect(338, 175, 20, 12); // Body lying
+                introCtx.fillStyle = '#d4a574';
+                introCtx.fillRect(335, 175, 8, 8); // Head down
+                introCtx.fillStyle = '#FFD700'; // Gloves
+                introCtx.fillRect(330, 180, 6, 6);
+                introCtx.fillRect(356, 180, 6, 6);
+            } else if (introPhase === 'kick') {
+                // Alisson diving (wrong way!)
+                introCtx.fillStyle = '#32CD32';
+                introCtx.fillRect(335, introKeeperY + 20, 18, 10); // Diving body
+                introCtx.fillStyle = '#d4a574';
+                introCtx.fillRect(337, introKeeperY + 15, 8, 8); // Head
+                introCtx.fillStyle = '#FFD700';
+                introCtx.fillRect(332, introKeeperY + 10, 8, 10); // Gloves reaching
+            } else {
+                // Standing ready
+                introCtx.fillStyle = '#32CD32';
+                introCtx.fillRect(338, 135, 12, 30);
+                introCtx.fillStyle = '#d4a574';
+                introCtx.fillRect(340, 128, 8, 10);
+                introCtx.fillStyle = '#FFD700';
+                introCtx.fillRect(334, 138, 6, 8);
+                introCtx.fillRect(348, 138, 6, 8);
+            }
+
+            // Ball - draw AFTER goal posts if it's in the net
             introCtx.fillStyle = '#fff';
             introCtx.beginPath();
             introCtx.arc(introBallX, introBallY, 6, 0, Math.PI * 2);
             introCtx.fill();
-
-            // Keeper (Alisson)
-            introCtx.fillStyle = '#32CD32';
-            introCtx.fillRect(340, 135, 12, 30);
-            introCtx.fillStyle = '#d4a574';
-            introCtx.fillRect(342, 128, 8, 10);
+            introCtx.fillStyle = '#333';
+            introCtx.beginPath();
+            introCtx.arc(introBallX - 2, introBallY - 2, 2, 0, Math.PI * 2);
+            introCtx.fill();
 
             // Title
             introCtx.fillStyle = '#c8102e';
@@ -1764,11 +2186,27 @@
             introCtx.fillText('GOAL MACHINE', 200, 60);
             introCtx.textAlign = 'left';
 
-            if (introPhase === 'goal') {
+            if (introPhase === 'goal' || introPhase === 'celebrate') {
+                // Net bulge effect - ball is IN the net
+                introCtx.fillStyle = 'rgba(255,215,0,0.3)';
+                introCtx.fillRect(0, 0, 400, 300);
+
+                // GOAL text
                 introCtx.fillStyle = '#ffd700';
-                introCtx.font = 'bold 24px monospace';
+                introCtx.font = 'bold 28px monospace';
                 introCtx.textAlign = 'center';
+                introCtx.strokeStyle = '#000';
+                introCtx.lineWidth = 3;
+                introCtx.strokeText('GOAL!', 200, 250);
                 introCtx.fillText('GOAL!', 200, 250);
+
+                // Confetti
+                for (let i = 0; i < 15; i++) {
+                    introCtx.fillStyle = ['#c8102e', '#ffd700', '#fff'][i % 3];
+                    const cx = (introFrame * 2 + i * 30) % 400;
+                    const cy = (introFrame + i * 20) % 300;
+                    introCtx.fillRect(cx, cy, 4, 4);
+                }
                 introCtx.textAlign = 'left';
             }
         }
@@ -1777,17 +2215,28 @@
             introFrame++;
 
             if (introPhase === 'run') {
-                introBallX += 1.2; // Slower run
-                if (introBallX > 300) introPhase = 'kick';
+                introBallX += 1.5;
+                if (introBallX > 300) {
+                    introPhase = 'kick';
+                    introKeeperDiving = true;
+                }
             } else if (introPhase === 'kick') {
-                introBallX += 4; // Slower kick
-                introBallY += Math.sin(introFrame * 0.1) * 1.5;
-                if (introBallX > 360) {
+                introBallX += 5;
+                // Ball curves into top corner
+                introBallY = 150 + Math.sin((introBallX - 300) * 0.03) * -30;
+                // Keeper dives wrong way
+                if (introKeeperDiving) {
+                    introKeeperY += 2; // Diving down while ball goes up!
+                }
+                // Ball reaches inside the goal (past the posts)
+                if (introBallX > 375) {
                     introPhase = 'goal';
-                    setTimeout(() => { introPhase = 'celebrate'; }, 1000); // Longer goal display
+                    introBallX = 375; // Ball rests in back of net
+                    introBallY = 130; // Top corner
+                    setTimeout(() => { introPhase = 'celebrate'; }, 1500);
                 }
             } else if (introPhase === 'celebrate') {
-                if (introFrame > 400) { // Much longer before auto-skip
+                if (introFrame > 500) {
                     skipIntro();
                 }
             }
