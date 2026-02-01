@@ -1201,6 +1201,7 @@
 
         async function endGame(completed) {
             gameState = 'gameOver';
+            screenShake = 0; // Stop any screen shake
             document.getElementById('finalScore').textContent = totalScore;
 
             // Show best streak
@@ -1908,8 +1909,11 @@
                     fkKeeperPos.x += fkKeeperDiveDir * 8;
                 }
 
-                // Check if ball reached goal
+                // Check if ball reached goal (only trigger once!)
                 if (fkBallPos.z > 200) {
+                    // IMPORTANT: Set phase to 'done' immediately to prevent multiple triggers
+                    freeKickPhase = 'done';
+
                     const finalX = fkBallPos.x;
                     const finalY = fkBallPos.y - fkBallPos.z * 0.3;
 
@@ -2419,26 +2423,34 @@
         document.getElementById('extraLifeBtn').addEventListener('click', () => {
             showRewardedAd(() => {
                 lives++;
-                // Pause game after ad so player can prepare - use setTimeout to ensure it sticks
+                // STREAK PENALTY: Using ad life resets your current streak!
+                const hadStreak = currentStreak >= 2;
+                currentStreak = 0;
+                comboMultiplier = 1;
+                // Pause game after ad so player can prepare
                 setTimeout(() => {
                     gamePaused = true;
                     document.getElementById('pauseBtn').textContent = '▶';
-                    document.getElementById('message').textContent = '+1 LIFE! Tap ▶ when ready!';
+                    const msg = hadStreak ? '+1 LIFE! (Streak reset) Tap ▶ when ready!' : '+1 LIFE! Tap ▶ when ready!';
+                    document.getElementById('message').textContent = msg;
                 }, 100);
             });
         });
 
         document.getElementById('continueAdBtn').addEventListener('click', () => {
             showRewardedAd(() => {
-                // Give player another chance - but pause so they can prepare
+                // Give player another chance - but streak resets as penalty
                 document.getElementById('gameOverOverlay').classList.add('hidden');
                 lives = 1;
+                // STREAK PENALTY: Using ad to continue resets streak!
+                currentStreak = 0;
+                comboMultiplier = 1;
                 resetPositions();
-                // Use setTimeout to ensure pause happens after all events settle
+                // Pause so they can prepare
                 setTimeout(() => {
                     gamePaused = true;
                     document.getElementById('pauseBtn').textContent = '▶';
-                    document.getElementById('message').textContent = 'Ready? Tap ▶ to continue!';
+                    document.getElementById('message').textContent = 'Streak reset! Tap ▶ to continue!';
                 }, 100);
             });
         });
