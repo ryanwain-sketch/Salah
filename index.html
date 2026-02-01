@@ -121,16 +121,17 @@
         .sound-btn {
             position: absolute;
             top: 10px;
-            right: 60px;
-            background: rgba(0,0,0,0.5);
+            right: 55px;
+            background: rgba(0,0,0,0.7);
             border: 2px solid #ffd700;
             color: #ffd700;
-            padding: 8px 12px;
-            border-radius: 5px;
-            font-size: 14px;
+            padding: 6px 8px;
+            border-radius: 3px;
+            font-size: 8px;
             cursor: pointer;
             z-index: 50;
             font-family: 'Press Start 2P', monospace;
+            letter-spacing: 1px;
         }
         .sound-btn:active {
             background: rgba(255,215,0,0.3);
@@ -400,7 +401,7 @@
         </div>
         <div id="canvasWrapper">
             <canvas id="gameCanvas" width="800" height="500"></canvas>
-            <button class="sound-btn" id="soundBtn" title="Music">🔇</button>
+            <button class="sound-btn" id="soundBtn" title="Music" style="opacity:0.5;">SND</button>
             <button class="pause-btn" id="pauseBtn" title="Pause">❚❚</button>
         </div>
         <div class="message" id="message">Hold SHOOT to power up!</div>
@@ -574,16 +575,28 @@
                 // Stop music
                 musicPlaying = false;
                 if (musicInterval) clearInterval(musicInterval);
-                btn.textContent = '🔇';
+                if (audioCtx) audioCtx.suspend();
+                btn.textContent = 'SND';
+                btn.style.opacity = '0.5';
                 btn.title = 'Music Off';
             } else {
-                // Start music
+                // Start music - MUST resume AudioContext on mobile
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                // Resume if suspended (required on mobile)
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
                 musicPlaying = true;
-                btn.textContent = '🔊';
+                btn.textContent = 'SND';
+                btn.style.opacity = '1';
                 btn.title = 'Music On';
                 const songLength = playMoSalahSong();
                 musicInterval = setInterval(() => {
-                    if (musicPlaying) playMoSalahSong();
+                    if (musicPlaying && audioCtx.state === 'running') {
+                        playMoSalahSong();
+                    }
                 }, songLength + 500); // Small gap between loops
             }
         }
