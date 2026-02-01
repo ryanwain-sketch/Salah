@@ -510,14 +510,20 @@
         }
 
         // Pause toggle
+        let pauseDebounce = 0;
+
         function togglePause() {
             if (gameState === 'menu' || gameState === 'gameOver' || gameState === 'levelComplete') return;
+
+            // Debounce to prevent accidental rapid toggling
+            if (Date.now() - pauseDebounce < 300) return;
+            pauseDebounce = Date.now();
 
             gamePaused = !gamePaused;
             const pauseBtn = document.getElementById('pauseBtn');
             if (gamePaused) {
                 pauseBtn.textContent = '▶';
-                document.getElementById('message').textContent = 'PAUSED - Tap to resume';
+                document.getElementById('message').textContent = 'PAUSED - Tap ▶ to resume';
             } else {
                 pauseBtn.textContent = '❚❚';
                 document.getElementById('message').textContent = 'Hold SHOOT to power up!';
@@ -848,7 +854,7 @@
             }, 3000);
         }
 
-        function finishAd(success) {
+        function finishAd(success, keepPaused = false) {
             if (adCountdownInterval) {
                 clearInterval(adCountdownInterval);
                 adCountdownInterval = null;
@@ -859,7 +865,11 @@
 
             document.getElementById('adOverlay').classList.add('hidden');
             document.getElementById('closeAdBtn').style.display = 'none';
-            gamePaused = false; // UNPAUSE THE GAME
+
+            // Only unpause if not told to keep paused
+            if (!keepPaused) {
+                gamePaused = false;
+            }
             adsWatched++;
 
             // Restore the overlay that was showing before ad (if any)
@@ -2409,10 +2419,12 @@
         document.getElementById('extraLifeBtn').addEventListener('click', () => {
             showRewardedAd(() => {
                 lives++;
-                // Pause game after ad so player can prepare
-                gamePaused = true;
-                document.getElementById('pauseBtn').textContent = '▶';
-                document.getElementById('message').textContent = '+1 LIFE! Tap ▶ to resume when ready!';
+                // Pause game after ad so player can prepare - use setTimeout to ensure it sticks
+                setTimeout(() => {
+                    gamePaused = true;
+                    document.getElementById('pauseBtn').textContent = '▶';
+                    document.getElementById('message').textContent = '+1 LIFE! Tap ▶ when ready!';
+                }, 100);
             });
         });
 
@@ -2422,9 +2434,12 @@
                 document.getElementById('gameOverOverlay').classList.add('hidden');
                 lives = 1;
                 resetPositions();
-                gamePaused = true;
-                document.getElementById('pauseBtn').textContent = '▶';
-                document.getElementById('message').textContent = 'Ready? Tap ▶ to continue!';
+                // Use setTimeout to ensure pause happens after all events settle
+                setTimeout(() => {
+                    gamePaused = true;
+                    document.getElementById('pauseBtn').textContent = '▶';
+                    document.getElementById('message').textContent = 'Ready? Tap ▶ to continue!';
+                }, 100);
             });
         });
 
