@@ -477,15 +477,24 @@
         function resizeCanvas() {
             const wrapper = document.getElementById('canvasWrapper');
             const container = document.querySelector('.game-container');
+            const isLandscape = window.innerWidth > window.innerHeight && window.innerHeight < 500;
 
-            // Get available space
-            const maxWidth = Math.min(window.innerWidth - 20, 800);
-            const maxHeight = window.innerHeight - 200; // Leave room for controls & UI
+            let maxWidth, maxHeight;
+
+            if (isLandscape) {
+                // Landscape: fill screen, leave small margin for controls
+                maxWidth = window.innerWidth - 40;
+                maxHeight = window.innerHeight - 20; // Minimal margin
+            } else {
+                // Portrait: leave room for UI elements
+                maxWidth = Math.min(window.innerWidth - 20, 800);
+                maxHeight = window.innerHeight - 200;
+            }
 
             // Calculate scale to fit
             const scaleX = maxWidth / GAME_WIDTH;
             const scaleY = maxHeight / GAME_HEIGHT;
-            canvasScale = Math.min(scaleX, scaleY, 1); // Don't scale up beyond 1
+            canvasScale = Math.min(scaleX, scaleY, 1.5); // Allow scaling up to 1.5x in landscape
 
             // Apply size via CSS (keeps internal resolution)
             canvas.style.width = (GAME_WIDTH * canvasScale) + 'px';
@@ -2255,14 +2264,25 @@
                 introCtx.fillRect(348, 138, 6, 8);
             }
 
-            // Ball - draw AFTER goal posts if it's in the net
+            // Ball - at Salah's feet during run, then flying during kick/goal
+            let ballDrawX, ballDrawY;
+            if (introPhase === 'run') {
+                // Ball at Salah's feet while dribbling
+                const bounce = Math.sin(introFrame * 0.3) * 3;
+                ballDrawX = salahX + 18; // At his feet
+                ballDrawY = 172 + bounce; // Bouncing with him
+            } else {
+                ballDrawX = introBallX;
+                ballDrawY = introBallY;
+            }
+
             introCtx.fillStyle = '#fff';
             introCtx.beginPath();
-            introCtx.arc(introBallX, introBallY, 6, 0, Math.PI * 2);
+            introCtx.arc(ballDrawX, ballDrawY, 6, 0, Math.PI * 2);
             introCtx.fill();
             introCtx.fillStyle = '#333';
             introCtx.beginPath();
-            introCtx.arc(introBallX - 2, introBallY - 2, 2, 0, Math.PI * 2);
+            introCtx.arc(ballDrawX - 2, ballDrawY - 2, 2, 0, Math.PI * 2);
             introCtx.fill();
 
             // Title
@@ -2305,6 +2325,8 @@
 
             if (introPhase === 'run') {
                 introBallX += 1.5;
+                // Ball stays at Salah's feet during dribbling
+                introBallY = 170 + Math.sin(introFrame * 0.4) * 2; // Slight dribble bounce
                 if (introBallX > 300) {
                     introPhase = 'kick';
                     introKeeperDiving = true;
