@@ -139,55 +139,22 @@
             position: absolute;
             top: 10px;
             right: 55px;
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.5);
             border: 2px solid #ffd700;
             color: #ffd700;
-            width: 36px;
-            height: 28px;
-            border-radius: 3px;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 14px;
             cursor: pointer;
             z-index: 50;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0;
+            font-family: 'Press Start 2P', monospace;
         }
         .sound-btn:active {
             background: rgba(255,215,0,0.3);
         }
-        /* Pixel speaker icon */
-        .speaker-icon {
-            display: flex;
-            align-items: center;
+        .sound-btn.sound-off {
+            opacity: 0.5;
         }
-        .speaker-body {
-            width: 6px;
-            height: 8px;
-            background: #ffd700;
-        }
-        .speaker-cone {
-            width: 0;
-            height: 0;
-            border-top: 6px solid transparent;
-            border-bottom: 6px solid transparent;
-            border-left: 6px solid #ffd700;
-        }
-        .sound-waves {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-            margin-left: 3px;
-        }
-        .sound-wave {
-            width: 3px;
-            height: 3px;
-            background: #ffd700;
-            border-radius: 50%;
-        }
-        .sound-wave.w2 { margin-left: 2px; }
-        .sound-wave.w3 { margin-left: 4px; }
-        .sound-off .sound-waves { display: none; }
-        .sound-off .speaker-body, .sound-off .speaker-cone { opacity: 0.4; }
 
         .instructions {
             color: #888;
@@ -453,17 +420,7 @@
         </div>
         <div id="canvasWrapper">
             <canvas id="gameCanvas" width="800" height="500"></canvas>
-            <button class="sound-btn sound-off" id="soundBtn" title="Music">
-                <div class="speaker-icon">
-                    <div class="speaker-body"></div>
-                    <div class="speaker-cone"></div>
-                    <div class="sound-waves">
-                        <div class="sound-wave w1"></div>
-                        <div class="sound-wave w2"></div>
-                        <div class="sound-wave w3"></div>
-                    </div>
-                </div>
-            </button>
+            <button class="sound-btn sound-off" id="soundBtn" title="Music">♪</button>
             <button class="pause-btn" id="pauseBtn" title="Pause">❚❚</button>
         </div>
         <div class="message" id="message">Hold SHOOT to power up!</div>
