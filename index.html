@@ -219,6 +219,21 @@
         .leaderboard-entry.gold { color: #ffd700; }
         .leaderboard-entry.silver { color: #c0c0c0; }
         .leaderboard-entry.bronze { color: #cd7f32; }
+
+        /* Force GameMonetize ads to appear ABOVE game overlays */
+        #GameMonetize-container,
+        [id*="GameMonetize"],
+        [class*="gamemonetize"],
+        iframe[src*="gamemonetize"],
+        div[style*="z-index: 99999"],
+        div[style*="z-index:99999"] {
+            z-index: 999999 !important;
+        }
+
+        /* When ad is playing, hide our overlays */
+        body.ad-playing .overlay {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -523,11 +538,27 @@
 
         let adCountdownInterval = null;
 
+        // Track which overlay was showing before ad
+        let overlayBeforeAd = null;
+
         function showAd(onComplete, isRewarded = false) {
             adCallback = onComplete;
             gamePaused = true; // PAUSE THE GAME
 
-            // Reset ad overlay state
+            // Remember which overlay was showing and hide ALL overlays for the ad
+            overlayBeforeAd = null;
+            ['levelOverlay', 'gameOverOverlay', 'startOverlay'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el && !el.classList.contains('hidden')) {
+                    overlayBeforeAd = id;
+                    el.classList.add('hidden');
+                }
+            });
+
+            // Add class to body so CSS can force GameMonetize to top
+            document.body.classList.add('ad-playing');
+
+            // Show our ad overlay (but it will be hidden by CSS while ad plays)
             document.getElementById('adOverlay').classList.remove('hidden');
             document.getElementById('closeAdBtn').style.display = 'none';
             document.getElementById('adTitle').textContent = isRewarded ? 'EARNING EXTRA LIFE!' : 'LOADING...';
@@ -588,10 +619,21 @@
                 clearInterval(adCountdownInterval);
                 adCountdownInterval = null;
             }
+
+            // Remove ad-playing class
+            document.body.classList.remove('ad-playing');
+
             document.getElementById('adOverlay').classList.add('hidden');
             document.getElementById('closeAdBtn').style.display = 'none';
             gamePaused = false; // UNPAUSE THE GAME
             adsWatched++;
+
+            // Restore the overlay that was showing before ad (if any)
+            if (overlayBeforeAd) {
+                document.getElementById(overlayBeforeAd).classList.remove('hidden');
+                overlayBeforeAd = null;
+            }
+
             if (adCallback) {
                 adCallback(success);
                 adCallback = null;
