@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate OG Image</title>
+    <style>
+        body { background: #1a1a2e; display: flex; flex-direction: column; align-items: center; padding: 20px; font-family: monospace; color: white; }
+        canvas { border: 2px solid #ffd700; margin: 20px; }
+        button { padding: 15px 30px; font-size: 18px; background: #c8102e; color: white; border: none; cursor: pointer; margin: 10px; }
+        button:hover { background: #a00d24; }
+    </style>
+</head>
+<body>
+    <h1>Mo Salah Goal Machine - OG Image Generator</h1>
+    <canvas id="ogCanvas" width="1200" height="630"></canvas>
+    <button onclick="downloadImage()">Download og-image.png</button>
+    <p>Upload this image to mosalahgame.com/og-image.png</p>
+
+    <script>
+        const canvas = document.getElementById('ogCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function drawPixelMoSalah(x, y, scale) {
+            const s = scale;
+
+            // Hair (afro style)
+            ctx.fillStyle = '#1a1a1a';
+            // Top of hair
+            for (let i = -3; i <= 3; i++) {
+                ctx.fillRect(x + i * s, y - 4 * s, s, s);
+            }
+            for (let i = -4; i <= 4; i++) {
+                ctx.fillRect(x + i * s, y - 3 * s, s, s);
+            }
+            for (let i = -4; i <= 4; i++) {
+                ctx.fillRect(x + i * s, y - 2 * s, s, s);
+            }
+            for (let i = -4; i <= 4; i++) {
+                ctx.fillRect(x + i * s, y - 1 * s, s, s);
+            }
+            // Sides of hair
+            ctx.fillRect(x - 4 * s, y, s, s * 3);
+            ctx.fillRect(x + 4 * s, y, s, s * 3);
+
+            // Face
+            ctx.fillStyle = '#d4a574';
+            for (let i = -3; i <= 3; i++) {
+                for (let j = 0; j <= 4; j++) {
+                    ctx.fillRect(x + i * s, y + j * s, s, s);
+                }
+            }
+
+            // Beard
+            ctx.fillStyle = '#1a1a1a';
+            for (let i = -3; i <= 3; i++) {
+                ctx.fillRect(x + i * s, y + 3 * s, s, s);
+                ctx.fillRect(x + i * s, y + 4 * s, s, s);
+            }
+            for (let i = -2; i <= 2; i++) {
+                ctx.fillRect(x + i * s, y + 5 * s, s, s);
+            }
+            // Beard sides
+            ctx.fillRect(x - 3 * s, y + 2 * s, s, s);
+            ctx.fillRect(x + 3 * s, y + 2 * s, s, s);
+
+            // Eyes
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(x - 2 * s, y + 1 * s, s, s);
+            ctx.fillRect(x + 1 * s, y + 1 * s, s, s);
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x - 2 * s, y + 1 * s, s * 0.6, s);
+            ctx.fillRect(x + 1 * s, y + 1 * s, s * 0.6, s);
+
+            // Eyebrows
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(x - 2 * s, y, s * 1.5, s * 0.4);
+            ctx.fillRect(x + 0.5 * s, y, s * 1.5, s * 0.4);
+
+            // Nose
+            ctx.fillStyle = '#c49464';
+            ctx.fillRect(x - 0.5 * s, y + 2 * s, s, s);
+
+            // Liverpool shirt collar
+            ctx.fillStyle = '#c8102e';
+            ctx.fillRect(x - 4 * s, y + 6 * s, s * 9, s * 3);
+        }
+
+        function generateOGImage() {
+            // Background gradient
+            const grad = ctx.createLinearGradient(0, 0, 1200, 630);
+            grad.addColorStop(0, '#1a1a2e');
+            grad.addColorStop(0.5, '#2d1a3e');
+            grad.addColorStop(1, '#1a1a2e');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 1200, 630);
+
+            // Pitch stripes at bottom
+            ctx.fillStyle = '#2d5a27';
+            ctx.fillRect(0, 480, 1200, 150);
+            ctx.fillStyle = '#347a2c';
+            for (let i = 0; i < 6; i++) {
+                if (i % 2 === 0) {
+                    ctx.fillRect(0, 480 + i * 25, 1200, 25);
+                }
+            }
+
+            // Goal net in background
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 20; i++) {
+                ctx.beginPath();
+                ctx.moveTo(300 + i * 30, 100);
+                ctx.lineTo(300 + i * 30, 400);
+                ctx.stroke();
+            }
+            for (let i = 0; i < 10; i++) {
+                ctx.beginPath();
+                ctx.moveTo(300, 100 + i * 30);
+                ctx.lineTo(900, 100 + i * 30);
+                ctx.stroke();
+            }
+
+            // Draw pixel Mo Salah (large, centered)
+            drawPixelMoSalah(600, 200, 12);
+
+            // Title
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold 72px "Arial Black", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('MO SALAH', 600, 80);
+
+            // Subtitle
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 36px "Arial Black", sans-serif';
+            ctx.fillText('GOAL MACHINE', 600, 130);
+
+            // Pixel art badge
+            ctx.fillStyle = 'rgba(200, 16, 46, 0.9)';
+            ctx.fillRect(450, 420, 300, 60);
+            ctx.strokeStyle = '#ffd700';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(450, 420, 300, 60);
+
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 24px "Arial Black", sans-serif';
+            ctx.fillText('PLAY NOW!', 600, 460);
+
+            // Pixel soccer ball
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(150, 520, 40, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(140, 510, 12, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Another ball
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(1050, 520, 40, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(1040, 510, 12, 0, Math.PI * 2);
+            ctx.fill();
+
+            // URL at bottom
+            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            ctx.font = '20px "Arial", sans-serif';
+            ctx.fillText('mosalahgame.com', 600, 610);
+        }
+
+        function downloadImage() {
+            const link = document.createElement('a');
+            link.download = 'og-image.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // Generate on load
+        generateOGImage();
+    </script>
+</body>
+</html>

@@ -8,6 +8,23 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#1a1a2e">
     <title>Mo Salah Goal Machine</title>
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://mosalahgame.com/">
+    <meta property="og:title" content="Mo Salah Goal Machine - Pixel Soccer Game">
+    <meta property="og:description" content="Play as Mo Salah and score goals! Dodge defenders, take free kicks, and become a legend. Can you beat my score?">
+    <meta property="og:image" content="https://mosalahgame.com/og-image.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://mosalahgame.com/">
+    <meta property="twitter:title" content="Mo Salah Goal Machine - Pixel Soccer Game">
+    <meta property="twitter:description" content="Play as Mo Salah and score goals! Dodge defenders, take free kicks, and become a legend.">
+    <meta property="twitter:image" content="https://mosalahgame.com/og-image.png">
+
+    <!-- WhatsApp -->
+    <meta property="og:site_name" content="Mo Salah Goal Machine">
     <!-- GameMonetize SDK for Ads -->
     <script src="https://api.gamemonetize.com/sdk.js"></script>
     <style>
@@ -125,17 +142,52 @@
             background: rgba(0,0,0,0.7);
             border: 2px solid #ffd700;
             color: #ffd700;
-            padding: 6px 8px;
+            width: 36px;
+            height: 28px;
             border-radius: 3px;
-            font-size: 8px;
             cursor: pointer;
             z-index: 50;
-            font-family: 'Press Start 2P', monospace;
-            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
         }
         .sound-btn:active {
             background: rgba(255,215,0,0.3);
         }
+        /* Pixel speaker icon */
+        .speaker-icon {
+            display: flex;
+            align-items: center;
+        }
+        .speaker-body {
+            width: 6px;
+            height: 8px;
+            background: #ffd700;
+        }
+        .speaker-cone {
+            width: 0;
+            height: 0;
+            border-top: 6px solid transparent;
+            border-bottom: 6px solid transparent;
+            border-left: 6px solid #ffd700;
+        }
+        .sound-waves {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-left: 3px;
+        }
+        .sound-wave {
+            width: 3px;
+            height: 3px;
+            background: #ffd700;
+            border-radius: 50%;
+        }
+        .sound-wave.w2 { margin-left: 2px; }
+        .sound-wave.w3 { margin-left: 4px; }
+        .sound-off .sound-waves { display: none; }
+        .sound-off .speaker-body, .sound-off .speaker-cone { opacity: 0.4; }
 
         .instructions {
             color: #888;
@@ -395,13 +447,23 @@
     <div class="game-container">
         <h1>MO SALAH GOAL MACHINE</h1>
         <div class="score-board">
-            <span class="score level">LVL: <span id="level">1</span></span>
+            <span class="score level">LVL: <span id="level">1</span>/<span id="totalLevels">9</span></span>
             <span class="score goals">GOALS: <span id="goals">0</span>/<span id="target">2</span></span>
             <span class="score total">PTS: <span id="totalScore">0</span></span>
         </div>
         <div id="canvasWrapper">
             <canvas id="gameCanvas" width="800" height="500"></canvas>
-            <button class="sound-btn" id="soundBtn" title="Music" style="opacity:0.5;">SND</button>
+            <button class="sound-btn sound-off" id="soundBtn" title="Music">
+                <div class="speaker-icon">
+                    <div class="speaker-body"></div>
+                    <div class="speaker-cone"></div>
+                    <div class="sound-waves">
+                        <div class="sound-wave w1"></div>
+                        <div class="sound-wave w2"></div>
+                        <div class="sound-wave w3"></div>
+                    </div>
+                </div>
+            </button>
             <button class="pause-btn" id="pauseBtn" title="Pause">❚❚</button>
         </div>
         <div class="message" id="message">Hold SHOOT to power up!</div>
@@ -461,8 +523,10 @@
             <div style="margin:15px 0;">
                 <p style="color:#fff;font-size:8px;margin-bottom:8px;">SHARE YOUR SCORE:</p>
                 <button onclick="shareScore('x')" style="padding:8px 12px;font-size:10px;margin:3px;background:#000;">𝕏 Post</button>
+                <button onclick="shareScore('facebook')" style="padding:8px 12px;font-size:10px;margin:3px;background:#1877F2;">📘 Facebook</button>
                 <button onclick="shareScore('whatsapp')" style="padding:8px 12px;font-size:10px;margin:3px;background:#25D366;">💬 WhatsApp</button>
                 <button onclick="shareScore('copy')" style="padding:8px 12px;font-size:10px;margin:3px;background:#666;">📋 Copy</button>
+                <button onclick="generateScoreCard()" style="padding:8px 12px;font-size:10px;margin:3px;background:#c8102e;">📸 Save Card</button>
             </div>
             <button id="continueAdBtn" style="background:linear-gradient(145deg,#22c55e,#16a34a);">📺 WATCH AD TO CONTINUE</button>
             <button id="playAgainBtn">PLAY AGAIN</button>
@@ -576,8 +640,7 @@
                 musicPlaying = false;
                 if (musicInterval) clearInterval(musicInterval);
                 if (audioCtx) audioCtx.suspend();
-                btn.textContent = 'SND';
-                btn.style.opacity = '0.5';
+                btn.classList.add('sound-off');
                 btn.title = 'Music Off';
             } else {
                 // Start music - MUST resume AudioContext on mobile
@@ -589,8 +652,7 @@
                     audioCtx.resume();
                 }
                 musicPlaying = true;
-                btn.textContent = 'SND';
-                btn.style.opacity = '1';
+                btn.classList.remove('sound-off');
                 btn.title = 'Music On';
                 const songLength = playMoSalahSong();
                 musicInterval = setInterval(() => {
@@ -1097,6 +1159,76 @@
             }
         }
 
+        // Generate shareable score card image
+        function generateScoreCard() {
+            const cardCanvas = document.createElement('canvas');
+            cardCanvas.width = 600;
+            cardCanvas.height = 400;
+            const cardCtx = cardCanvas.getContext('2d');
+
+            // Background gradient
+            const grad = cardCtx.createLinearGradient(0, 0, 600, 400);
+            grad.addColorStop(0, '#1a1a2e');
+            grad.addColorStop(1, '#c8102e');
+            cardCtx.fillStyle = grad;
+            cardCtx.fillRect(0, 0, 600, 400);
+
+            // Add pitch pattern
+            cardCtx.fillStyle = 'rgba(45, 90, 39, 0.3)';
+            for (let i = 0; i < 10; i++) {
+                if (i % 2 === 0) {
+                    cardCtx.fillRect(0, 280 + i * 12, 600, 12);
+                }
+            }
+
+            // Title
+            cardCtx.fillStyle = '#ffd700';
+            cardCtx.font = 'bold 28px "Press Start 2P", monospace';
+            cardCtx.textAlign = 'center';
+            cardCtx.fillText('MO SALAH', 300, 60);
+            cardCtx.fillText('GOAL MACHINE', 300, 100);
+
+            // Score box
+            cardCtx.fillStyle = 'rgba(0,0,0,0.6)';
+            cardCtx.fillRect(100, 130, 400, 150);
+            cardCtx.strokeStyle = '#ffd700';
+            cardCtx.lineWidth = 4;
+            cardCtx.strokeRect(100, 130, 400, 150);
+
+            // Score
+            cardCtx.fillStyle = '#fff';
+            cardCtx.font = '16px "Press Start 2P", monospace';
+            cardCtx.fillText('FINAL SCORE', 300, 170);
+
+            cardCtx.fillStyle = '#ffd700';
+            cardCtx.font = 'bold 48px "Press Start 2P", monospace';
+            cardCtx.fillText(totalScore.toString(), 300, 230);
+
+            // Stats
+            cardCtx.fillStyle = '#fff';
+            cardCtx.font = '10px "Press Start 2P", monospace';
+            cardCtx.fillText(`BEST STREAK: ${bestStreak}x`, 300, 265);
+
+            // Player name
+            const playerName = document.getElementById('playerName')?.value || 'PLAYER';
+            cardCtx.fillStyle = '#c8102e';
+            cardCtx.fillRect(175, 300, 250, 35);
+            cardCtx.fillStyle = '#fff';
+            cardCtx.font = '12px "Press Start 2P", monospace';
+            cardCtx.fillText(playerName.toUpperCase(), 300, 323);
+
+            // Footer
+            cardCtx.fillStyle = 'rgba(255,255,255,0.7)';
+            cardCtx.font = '8px "Press Start 2P", monospace';
+            cardCtx.fillText('mosalahgame.com - Play Now!', 300, 380);
+
+            // Download the image
+            const link = document.createElement('a');
+            link.download = `mosalah-score-${totalScore}.png`;
+            link.href = cardCanvas.toDataURL('image/png');
+            link.click();
+        }
+
         // Tips system
         const tips = [
             "TIP: Hold SHOOT longer for more power, but careful - too much goes over!",
@@ -1319,12 +1451,15 @@
             shotCharging = false;
             shotPower = 0;
 
-            // Reset defenders
+            // Reset defenders - positioned further back, especially for 3-defender level
             const defSpeed = level.defenderSpeed || 2.0;
-            defenders.konate.x = 500; defenders.konate.y = 250; defenders.konate.speed = defSpeed;
-            defenders.vandijk.x = 450; defenders.vandijk.y = 180; defenders.vandijk.speed = defSpeed * 0.9;
-            defenders.robertson.x = 480; defenders.robertson.y = 320; defenders.robertson.speed = defSpeed * 1.1;
-            defenders.bradley.x = 420; defenders.bradley.y = 250; defenders.bradley.speed = defSpeed * 1.05;
+            const isThreeDefenders = level.defenders?.length === 3;
+            const defXOffset = isThreeDefenders ? 60 : 0; // Push back further on 3-defender level
+
+            defenders.konate.x = 520 + defXOffset; defenders.konate.y = 250; defenders.konate.speed = defSpeed;
+            defenders.vandijk.x = 480 + defXOffset; defenders.vandijk.y = 180; defenders.vandijk.speed = defSpeed * 0.9;
+            defenders.robertson.x = 500 + defXOffset; defenders.robertson.y = 320; defenders.robertson.speed = defSpeed * 1.1;
+            defenders.bradley.x = 450; defenders.bradley.y = 250; defenders.bradley.speed = defSpeed * 1.05;
         }
 
         function setupWall(size) {
@@ -1340,6 +1475,7 @@
             levelGoals = 0;
             const level = levels[currentLevel];
             document.getElementById('level').textContent = level.suddenDeath ? 'SD' : (currentLevel + 1);
+            document.getElementById('totalLevels').textContent = levels.length;
             document.getElementById('target').textContent = level.suddenDeath ? '∞' : level.target;
             document.getElementById('goals').textContent = '0';
             resetPositions();
@@ -2116,7 +2252,7 @@
 
                 // Gravity effect on arc
                 if (fkBallVel.z > 0) {
-                    fkBallVel.z -= 0.12;
+                    fkBallVel.z -= 0.10;
                 }
 
                 // Keeper reaction - decides which way to dive
@@ -2124,53 +2260,107 @@
                     fkKeeperDiving = true;
                     // Keeper dives based on zone - often wrong for corners!
                     if (fkSelectedZone === 'left') {
-                        // 70% chance keeper dives wrong way (right) for left corner
-                        fkKeeperDiveDir = Math.random() < 0.7 ? 1 : -1;
+                        // 75% chance keeper dives wrong way for corners
+                        fkKeeperDiveDir = Math.random() < 0.75 ? 1 : -1;
                     } else if (fkSelectedZone === 'right') {
-                        // 70% chance keeper dives wrong way (left) for right corner
-                        fkKeeperDiveDir = Math.random() < 0.7 ? -1 : 1;
+                        fkKeeperDiveDir = Math.random() < 0.75 ? -1 : 1;
                     } else {
-                        // Center: keeper stays put or dives randomly, 40% chance stays
-                        if (Math.random() < 0.4) {
-                            fkKeeperDiveDir = 0; // Stay in center
+                        // Center: keeper stays put 50% of time
+                        if (Math.random() < 0.5) {
+                            fkKeeperDiveDir = 0;
                         } else {
                             fkKeeperDiveDir = Math.random() < 0.5 ? -1 : 1;
                         }
                     }
                 }
 
+                // Move keeper towards ball for realistic save animation
                 if (fkKeeperDiving && fkKeeperDiveDir !== 0) {
-                    fkKeeperPos.x += fkKeeperDiveDir * 7;
+                    fkKeeperPos.x += fkKeeperDiveDir * 6;
                 }
 
                 // Check if ball reached goal (only trigger once!)
-                if (fkBallPos.z > 200) {
+                if (fkBallPos.z > 180) {
                     freeKickPhase = 'done';
 
                     const finalX = fkBallPos.x;
                     const finalY = fkBallPos.y - fkBallPos.z * 0.3;
 
+                    // Goal bounds
+                    const leftPost = 225;
+                    const rightPost = 575;
+                    const crossbar = 125;
+                    const groundLine = 270;
+
+                    // Check for post/bar hits (rare events)
+                    const hitLeftPost = Math.abs(finalX - leftPost) < 15 && finalY > crossbar && finalY < groundLine;
+                    const hitRightPost = Math.abs(finalX - rightPost) < 15 && finalY > crossbar && finalY < groundLine;
+                    const hitCrossbar = Math.abs(finalY - crossbar) < 15 && finalX > leftPost && finalX < rightPost;
+                    const hitPost = hitLeftPost || hitRightPost;
+
                     // Determine if goal based on zone and keeper position
                     const isCorner = fkSelectedZone !== 'center';
                     const keeperDist = Math.abs(finalX - fkKeeperPos.x);
 
-                    // Corners: keeper needs to be very close (30px) to save
-                    // Center: keeper saves if within 60px
-                    const saveRadius = isCorner ? 35 : 60;
+                    // Keeper save radius - must be close to save
+                    const saveRadius = isCorner ? 40 : 55;
 
                     // Check if ball is in goal bounds
-                    const inGoal = finalX > 220 && finalX < 580 && finalY > 120 && finalY < 275;
+                    const inGoal = finalX > leftPost && finalX < rightPost && finalY > crossbar && finalY < groundLine;
 
-                    if (!inGoal) {
+                    // Ball goes over
+                    if (finalY < crossbar - 20) {
+                        document.getElementById('message').textContent = 'OVER THE BAR!';
+                        handleMiss(false);
+                    }
+                    // Ball goes wide
+                    else if (finalX < leftPost - 20 || finalX > rightPost + 20) {
                         document.getElementById('message').textContent = randomMessage(missMessages);
                         handleMiss(false);
-                    } else if (keeperDist < saveRadius) {
+                    }
+                    // Hit the crossbar
+                    else if (hitCrossbar) {
+                        const rand = Math.random();
+                        if (rand < 0.15) {
+                            // 15% - hits bar and goes IN
+                            document.getElementById('message').textContent = 'OFF THE BAR AND IN!!!';
+                            handleGoal();
+                        } else {
+                            document.getElementById('message').textContent = 'OFF THE CROSSBAR!';
+                            handleMiss(false);
+                        }
+                    }
+                    // Hit the post
+                    else if (hitPost) {
+                        const rand = Math.random();
+                        if (rand < 0.10) {
+                            // 10% - hits post and goes in
+                            document.getElementById('message').textContent = 'OFF THE POST AND IN!!!';
+                            handleGoal();
+                        } else if (rand < 0.13) {
+                            // 3% - hits post, bounces to other post, goes in!
+                            document.getElementById('message').textContent = 'POST TO POST - GOAL!!!';
+                            handleGoal();
+                        } else {
+                            document.getElementById('message').textContent = 'OFF THE POST!';
+                            handleMiss(false);
+                        }
+                    }
+                    // Keeper save - move keeper to ball position for realistic look
+                    else if (inGoal && keeperDist < saveRadius) {
+                        fkKeeperPos.x = finalX; // Keeper reaches the ball
                         document.getElementById('message').textContent = randomMessage(saveMessages);
                         handleMiss(true);
-                    } else {
-                        // GOAL!
+                    }
+                    // GOAL!
+                    else if (inGoal) {
                         document.getElementById('message').textContent = randomMessage(freeKickMessages);
                         handleGoal();
+                    }
+                    // Missed somehow
+                    else {
+                        document.getElementById('message').textContent = randomMessage(missMessages);
+                        handleMiss(false);
                     }
                 }
             }
@@ -2179,34 +2369,66 @@
         function shootFPVFreeKick() {
             freeKickPhase = 'flying';
             fkPower = shotPower;
+            const powerPct = fkPower / maxShotPower;
 
             // Get target position based on selected zone
             let targetX, targetY;
             if (fkSelectedZone === 'left') {
-                targetX = 260 + Math.random() * 40; // Left corner with some variation
-                targetY = 160 + Math.random() * 30;
+                targetX = 250 + Math.random() * 50;
+                targetY = 150 + Math.random() * 40;
             } else if (fkSelectedZone === 'right') {
-                targetX = 500 + Math.random() * 40; // Right corner with some variation
-                targetY = 160 + Math.random() * 30;
+                targetX = 500 + Math.random() * 50;
+                targetY = 150 + Math.random() * 40;
             } else {
-                targetX = 380 + Math.random() * 40; // Center with some variation
-                targetY = 180 + Math.random() * 40;
+                targetX = 370 + Math.random() * 60;
+                targetY = 170 + Math.random() * 50;
+            }
+
+            // Power affects accuracy - 30-70% is optimal range, 55% is sweet spot
+            let accuracyBonus = 0;
+            if (powerPct >= 0.30 && powerPct <= 0.70) {
+                accuracyBonus = 1;
+                // Extra bonus for 50-60% (sweet spot)
+                if (powerPct >= 0.50 && powerPct <= 0.60) {
+                    accuracyBonus = 1.15;
+                }
+            } else if (powerPct < 0.30) {
+                // Too weak - ball won't clear wall well
+                targetY += 40; // Drops lower
+            } else {
+                // Too strong - ball goes higher/over
+                targetY -= 30 + (powerPct - 0.70) * 100; // Goes over more as power increases
             }
 
             // Calculate trajectory
             const dx = targetX - 400;
             const dy = targetY - 480;
 
-            // Ball velocity - smoother arc
-            fkBallVel.x = dx * 0.07;
-            fkBallVel.y = dy * 0.055;
-            fkBallVel.z = 6 + (fkPower / maxShotPower) * 6; // Height based on power
+            // Ball velocity - power affects height, optimal power = better arc
+            const baseZ = 5;
+            const powerZ = powerPct * 5;
+            // Over 70% power makes ball go too high
+            const overPowerPenalty = powerPct > 0.70 ? (powerPct - 0.70) * 8 : 0;
+
+            fkBallVel.x = dx * 0.065;
+            fkBallVel.y = dy * 0.05;
+            fkBallVel.z = baseZ + powerZ + overPowerPenalty;
 
             // Reset ball position
             fkBallPos = { x: 400, y: 480, z: 0 };
 
             shotCharging = false;
             shotPower = 0;
+
+            // Safety timeout - if ball doesn't reach goal in 5 seconds, force completion
+            setTimeout(() => {
+                if (freeKickPhase === 'flying') {
+                    console.log('Free kick safety timeout triggered');
+                    freeKickPhase = 'done';
+                    document.getElementById('message').textContent = randomMessage(missMessages);
+                    handleMiss(false);
+                }
+            }, 5000);
         }
 
         function drawCelebration() {
