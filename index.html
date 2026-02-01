@@ -667,7 +667,8 @@
                     if (!Array.isArray(entries)) entries = [entries];
                     globalLeaderboard = entries.map(e => ({
                         name: e.name,
-                        score: parseInt(e.score)
+                        score: parseInt(e.score),
+                        streak: parseInt(e.seconds) || 0 // Streak stored in seconds field
                     }));
                 } else {
                     globalLeaderboard = [];
@@ -685,15 +686,16 @@
             // Save to local storage as backup
             const local = localStorage.getItem('salahLeaderboard');
             const leaderboard = local ? JSON.parse(local) : [];
-            leaderboard.push({ name, score, date: Date.now() });
+            leaderboard.push({ name, score, streak: bestStreak, date: Date.now() });
             leaderboard.sort((a, b) => b.score - a.score);
             localStorage.setItem('salahLeaderboard', JSON.stringify(leaderboard.slice(0, 50)));
 
-            // Save to global Dreamlo leaderboard
+            // Save to global Dreamlo leaderboard (with streak in text field)
             try {
                 const safeName = encodeURIComponent(name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12) || 'PLAYER');
-                await fetch(`https://www.dreamlo.com/lb/${DREAMLO_PRIVATE}/add/${safeName}/${score}`);
-                console.log('Score saved globally!');
+                // Dreamlo format: /add/name/score/seconds/text - we use seconds for streak
+                await fetch(`https://www.dreamlo.com/lb/${DREAMLO_PRIVATE}/add/${safeName}/${score}/${bestStreak}`);
+                console.log('Score saved globally with streak!');
             } catch (err) {
                 console.log('Error saving to global leaderboard:', err);
             }
@@ -708,6 +710,7 @@
             await fetchLeaderboard();
 
             let html = '<h3>GLOBAL LEADERBOARD</h3>';
+            html += '<div style="display:flex;justify-content:space-between;font-size:8px;color:#888;padding:2px 5px;border-bottom:1px solid #333;"><span>PLAYER</span><span>SCORE</span><span>STREAK</span></div>';
             const top10 = globalLeaderboard.slice(0, 10);
             if (top10.length === 0) {
                 html += '<p style="color:#888;font-size:10px;">No scores yet! Be the first!</p>';
@@ -717,9 +720,11 @@
                     if (i === 0) cls = 'gold';
                     else if (i === 1) cls = 'silver';
                     else if (i === 2) cls = 'bronze';
-                    html += `<div class="leaderboard-entry ${cls}">
-                        <span>${i + 1}. ${entry.name}</span>
-                        <span>${entry.score}</span>
+                    const streakDisplay = entry.streak > 0 ? `🔥${entry.streak}` : '-';
+                    html += `<div class="leaderboard-entry ${cls}" style="display:flex;justify-content:space-between;">
+                        <span style="flex:1;">${i + 1}. ${entry.name}</span>
+                        <span style="width:50px;text-align:right;">${entry.score}</span>
+                        <span style="width:40px;text-align:right;">${streakDisplay}</span>
                     </div>`;
                 });
             }
@@ -2404,16 +2409,22 @@
         document.getElementById('extraLifeBtn').addEventListener('click', () => {
             showRewardedAd(() => {
                 lives++;
-                document.getElementById('message').textContent = '+1 LIFE! You now have ' + lives + ' lives!';
+                // Pause game after ad so player can prepare
+                gamePaused = true;
+                document.getElementById('pauseBtn').textContent = '▶';
+                document.getElementById('message').textContent = '+1 LIFE! Tap ▶ to resume when ready!';
             });
         });
 
         document.getElementById('continueAdBtn').addEventListener('click', () => {
             showRewardedAd(() => {
-                // Give player another chance
+                // Give player another chance - but pause so they can prepare
                 document.getElementById('gameOverOverlay').classList.add('hidden');
                 lives = 1;
                 resetPositions();
+                gamePaused = true;
+                document.getElementById('pauseBtn').textContent = '▶';
+                document.getElementById('message').textContent = 'Ready? Tap ▶ to continue!';
             });
         });
 
