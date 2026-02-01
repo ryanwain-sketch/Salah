@@ -256,9 +256,12 @@
 
     <!-- Ad Container -->
     <div class="overlay hidden" id="adOverlay">
-        <div class="menu" style="padding:15px;">
-            <p style="color:#ffd700;font-size:10px;margin-bottom:10px;">Loading ad...</p>
-            <div id="gamemonetize-ad"></div>
+        <div class="menu" style="padding:20px;min-width:280px;">
+            <p style="color:#ffd700;font-size:12px;margin-bottom:15px;">Loading ad...</p>
+            <div id="gamemonetize-ad" style="min-height:100px;display:flex;align-items:center;justify-content:center;">
+                <div style="color:#888;font-size:10px;">Please wait...</div>
+            </div>
+            <button id="closeAdBtn" style="margin-top:15px;padding:10px 20px;font-size:10px;background:#666;display:none;">SKIP AD</button>
         </div>
     </div>
 
@@ -296,9 +299,15 @@
     <div class="overlay" id="introOverlay">
         <div style="text-align:center;">
             <canvas id="introCanvas" width="400" height="300" style="border-radius:8px;"></canvas>
-            <p style="color:#ffd700;font-size:12px;margin-top:15px;font-family:'Press Start 2P',monospace;">TAP OR PRESS ANY KEY TO SKIP</p>
+            <button id="skipIntroBtn" style="margin-top:20px;padding:15px 40px;font-size:14px;font-family:'Press Start 2P',monospace;background:linear-gradient(145deg,#c8102e,#a00d24);color:#fff;border:4px solid #ffd700;border-radius:8px;cursor:pointer;animation:pulse 1s infinite;">SKIP INTRO</button>
         </div>
     </div>
+    <style>
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 10px #ffd700; }
+            50% { transform: scale(1.05); box-shadow: 0 0 20px #ffd700; }
+        }
+    </style>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
@@ -471,43 +480,114 @@
             container.innerHTML = html;
         }
 
-        // GameMonetize Ads - Fixed SDK integration
+        // GameMonetize Ads Integration
         const GAME_ID = '4kci7og3klgj0ivy2wz3gdvd9dth5e7n';
         let adCallback = null;
         let adsWatched = 0;
+        let sdkReady = false;
+
+        // Initialize GameMonetize SDK
+        function initGameMonetizeSDK() {
+            if (typeof GameMonetize !== 'undefined') {
+                GameMonetize.init({
+                    gameId: GAME_ID,
+                    onEvent: function(event) {
+                        console.log('GameMonetize event:', event.name);
+                        if (event.name === 'SDK_READY') {
+                            sdkReady = true;
+                            console.log('GameMonetize SDK ready!');
+                        } else if (event.name === 'AD_SUCCESS' || event.name === 'AD_COMPLETED') {
+                            adsWatched++;
+                            document.getElementById('adOverlay').classList.add('hidden');
+                            if (adCallback) adCallback(true);
+                        } else if (event.name === 'AD_FAILED' || event.name === 'AD_REJECTED' || event.name === 'AD_DISMISS') {
+                            console.log('Ad not available or dismissed');
+                            document.getElementById('adOverlay').classList.add('hidden');
+                            if (adCallback) adCallback(true); // Continue anyway
+                        }
+                    }
+                });
+            } else if (typeof sdk !== 'undefined' && sdk.init) {
+                // Alternative SDK pattern
+                sdk.init(GAME_ID);
+                sdkReady = true;
+            } else {
+                console.log('GameMonetize SDK not found - ads will be simulated');
+            }
+        }
+
+        // Try to init SDK when page loads
+        window.addEventListener('load', initGameMonetizeSDK);
 
         function showAd(onComplete) {
             adCallback = onComplete;
             document.getElementById('adOverlay').classList.remove('hidden');
 
-            // Try GameMonetize SDK
-            if (typeof sdk !== 'undefined') {
+            // Try multiple SDK patterns
+            let adShown = false;
+
+            // Pattern 1: GameMonetize object
+            if (typeof GameMonetize !== 'undefined' && GameMonetize.showAd) {
                 try {
-                    sdk.showAd('interstitial', GAME_ID).then(() => {
-                        adsWatched++;
-                        document.getElementById('adOverlay').classList.add('hidden');
-                        if (adCallback) adCallback(true);
-                    }).catch((err) => {
-                        console.log('Ad error:', err);
-                        document.getElementById('adOverlay').classList.add('hidden');
-                        if (adCallback) adCallback(true); // Continue anyway
-                    });
+                    GameMonetize.showAd();
+                    adShown = true;
+                    console.log('Showing ad via GameMonetize.showAd()');
                 } catch(e) {
-                    // Fallback
-                    setTimeout(() => {
-                        document.getElementById('adOverlay').classList.add('hidden');
-                        if (adCallback) adCallback(true);
-                    }, 1000);
+                    console.log('GameMonetize.showAd error:', e);
                 }
-            } else {
-                // No SDK - continue after brief pause
+            }
+
+            // Pattern 2: sdk object with showBanner
+            if (!adShown && typeof sdk !== 'undefined') {
+                try {
+                    if (sdk.showBanner) {
+                        sdk.showBanner();
+                        adShown = true;
+                        console.log('Showing ad via sdk.showBanner()');
+                    } else if (sdk.showAd) {
+                        sdk.showAd();
+                        adShown = true;
+                        console.log('Showing ad via sdk.showAd()');
+                    }
+                } catch(e) {
+                    console.log('SDK ad error:', e);
+                }
+            }
+
+            // Fallback: simulate ad with timeout
+            if (!adShown) {
+                console.log('No ad SDK available - simulating ad delay');
                 setTimeout(() => {
                     adsWatched++;
                     document.getElementById('adOverlay').classList.add('hidden');
                     if (adCallback) adCallback(true);
-                }, 1000);
+                }, 2000); // 2 second simulated ad
             }
+
+            // Show skip button after 3 seconds
+            setTimeout(() => {
+                const skipBtn = document.getElementById('closeAdBtn');
+                if (skipBtn && !document.getElementById('adOverlay').classList.contains('hidden')) {
+                    skipBtn.style.display = 'block';
+                }
+            }, 3000);
+
+            // Safety timeout - don't leave user stuck
+            setTimeout(() => {
+                if (document.getElementById('adOverlay').classList.contains('hidden') === false) {
+                    console.log('Ad timeout - continuing');
+                    document.getElementById('adOverlay').classList.add('hidden');
+                    if (adCallback) adCallback(true);
+                }
+            }, 10000); // 10 second max wait
         }
+
+        // Close ad button handler
+        document.getElementById('closeAdBtn')?.addEventListener('click', () => {
+            document.getElementById('adOverlay').classList.add('hidden');
+            document.getElementById('closeAdBtn').style.display = 'none';
+            if (adCallback) adCallback(true);
+        });
 
         function showRewardedAd(onReward) {
             showAd((success) => {
@@ -1428,17 +1508,17 @@
             introFrame++;
 
             if (introPhase === 'run') {
-                introBallX += 3;
+                introBallX += 1.2; // Slower run
                 if (introBallX > 300) introPhase = 'kick';
             } else if (introPhase === 'kick') {
-                introBallX += 8;
-                introBallY += Math.sin(introFrame * 0.1) * 2;
+                introBallX += 4; // Slower kick
+                introBallY += Math.sin(introFrame * 0.1) * 1.5;
                 if (introBallX > 360) {
                     introPhase = 'goal';
-                    setTimeout(() => { introPhase = 'celebrate'; }, 500);
+                    setTimeout(() => { introPhase = 'celebrate'; }, 1000); // Longer goal display
                 }
             } else if (introPhase === 'celebrate') {
-                if (introFrame > 180) {
+                if (introFrame > 400) { // Much longer before auto-skip
                     skipIntro();
                 }
             }
@@ -1457,10 +1537,16 @@
             document.getElementById('startOverlay').classList.remove('hidden');
         }
 
-        // Skip intro on click/key
-        document.addEventListener('keydown', () => { if (introActive) skipIntro(); }, { once: false });
-        document.addEventListener('click', () => { if (introActive) skipIntro(); }, { once: false });
-        document.addEventListener('touchstart', () => { if (introActive) skipIntro(); }, { once: false });
+        // Skip intro on button click or key press
+        document.getElementById('skipIntroBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            skipIntro();
+        });
+        document.getElementById('skipIntroBtn').addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            skipIntro();
+        });
+        document.addEventListener('keydown', () => { if (introActive) skipIntro(); });
 
         // Menu handlers
         document.getElementById('startBtn').addEventListener('click', () => {
