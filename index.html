@@ -836,6 +836,212 @@
         let isWorldieAttempt = false;
         let worldieGoalScored = false;
 
+        // Slow-mo replay system
+        const REPLAY_BUFFER_SIZE = 90; // ~1.5 seconds at 60fps
+        let replayBuffer = [];
+        let isRecording = true;
+        let isReplaying = false;
+        let replayFrame = 0;
+        let replaySpeed = 0.15; // Slow-mo speed
+        let replayType = null; // 'worldie', 'post_in', 'screamer'
+        let pendingCelebration = null; // Store celebration to run after replay
+
+        function recordFrame() {
+            if (!isRecording || isReplaying) return;
+
+            const frame = {
+                ballX: ball.x,
+                ballY: ball.y,
+                ballVelX: ball.velocityX,
+                ballVelY: ball.velocityY,
+                keeperX: alisson.x,
+                keeperY: alisson.y,
+                keeperDiving: alisson.diving,
+                keeperDiveDir: alisson.diveDirection,
+                salahX: salah.x,
+                salahY: salah.y,
+                kickFrame: salah.kickFrame,
+                gameState: gameState
+            };
+
+            replayBuffer.push(frame);
+            if (replayBuffer.length > REPLAY_BUFFER_SIZE) {
+                replayBuffer.shift();
+            }
+        }
+
+        function startReplay(type) {
+            if (replayBuffer.length < 20) return false; // Not enough frames
+
+            isReplaying = true;
+            isRecording = false;
+            replayFrame = 0;
+            replayType = type;
+            return true;
+        }
+
+        function drawReplayFrame() {
+            if (!isReplaying || replayBuffer.length === 0) return;
+
+            const frameIndex = Math.floor(replayFrame);
+            if (frameIndex >= replayBuffer.length) {
+                // Replay done
+                endReplay();
+                return;
+            }
+
+            const frame = replayBuffer[frameIndex];
+            const nextFrameIndex = Math.min(frameIndex + 1, replayBuffer.length - 1);
+            const nextFrame = replayBuffer[nextFrameIndex];
+            const t = replayFrame - frameIndex; // Interpolation factor
+
+            // Lerp helper
+            const lerp = (a, b, t) => a + (b - a) * t;
+
+            // Draw darkened background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw pitch (simplified)
+            ctx.fillStyle = '#2d5a27';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#347a2c';
+            for (let i = 0; i < 14; i++) {
+                if (i % 2 === 0) ctx.fillRect(0, i * 35, canvas.width, 35);
+            }
+
+            // Draw goal
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(goal.x, goal.y, goal.width, goal.postWidth);
+            ctx.fillRect(goal.x, goal.y + goal.height - goal.postWidth, goal.width, goal.postWidth);
+            ctx.fillRect(goal.x, goal.y, goal.postWidth, goal.height);
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 8; i++) {
+                ctx.beginPath();
+                ctx.moveTo(goal.x, goal.y + i * 25);
+                ctx.lineTo(goal.x + goal.width, goal.y + i * 25);
+                ctx.stroke();
+            }
+
+            // Interpolated positions
+            const ballX = lerp(frame.ballX, nextFrame.ballX, t);
+            const ballY = lerp(frame.ballY, nextFrame.ballY, t);
+            const keeperY = lerp(frame.keeperY, nextFrame.keeperY, t);
+
+            // Draw Salah
+            ctx.fillStyle = '#c8102e';
+            ctx.fillRect(frame.salahX - 16, frame.salahY - 24, 32, 48);
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(frame.salahX - 8, frame.salahY - 36, 16, 16);
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.arc(frame.salahX, frame.salahY - 32, 10, Math.PI, 0);
+            ctx.fill();
+
+            // Draw keeper
+            ctx.fillStyle = '#32CD32';
+            if (frame.keeperDiving) {
+                ctx.fillRect(alisson.x - 18, keeperY, 36, 52);
+            } else {
+                ctx.fillRect(alisson.x - 18, keeperY, 36, 52);
+            }
+            ctx.fillStyle = '#d4a574';
+            ctx.fillRect(alisson.x - 8, keeperY - 12, 16, 16);
+
+            // Draw ball with motion trail
+            const trailLength = 8;
+            for (let i = trailLength; i >= 0; i--) {
+                const trailIdx = Math.max(0, frameIndex - i * 2);
+                const trailFrame = replayBuffer[trailIdx];
+                const alpha = (1 - i / trailLength) * 0.6;
+                const size = ball.radius * (1 - i / trailLength * 0.5);
+
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(trailFrame.ballX, trailFrame.ballY, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Main ball
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(ballX, ballY, ball.radius + 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(ballX - 3, ballY - 3, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Dramatic vignette
+            const gradient = ctx.createRadialGradient(
+                canvas.width / 2, canvas.height / 2, 100,
+                canvas.width / 2, canvas.height / 2, 400
+            );
+            gradient.addColorStop(0, 'rgba(0,0,0,0)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0.6)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Scanlines effect (subtle CRT look)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            for (let y = 0; y < canvas.height; y += 4) {
+                ctx.fillRect(0, y, canvas.width, 2);
+            }
+
+            // Cinematic letterbox (black bars top and bottom)
+            const letterboxHeight = 40;
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, letterboxHeight);
+            ctx.fillRect(0, canvas.height - letterboxHeight, canvas.width, letterboxHeight);
+
+            // Glowing border on worldie
+            if (replayType === 'worldie') {
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.5)';
+                ctx.lineWidth = 6;
+                ctx.strokeRect(3, letterboxHeight + 3, canvas.width - 6, canvas.height - letterboxHeight * 2 - 6);
+            }
+
+            // Replay label (in top letterbox)
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold 18px monospace';
+            ctx.textAlign = 'center';
+            const replayText = replayType === 'worldie' ? '🎬 INSTANT REPLAY - WORLDIE!' :
+                              replayType === 'post_in' ? '🎬 INSTANT REPLAY - OFF THE POST!' :
+                              '🎬 INSTANT REPLAY';
+            ctx.fillText(replayText, canvas.width / 2, 26);
+
+            // "SLOW MOTION" text with pulsing effect
+            const pulse = 0.7 + Math.sin(Date.now() * 0.005) * 0.3;
+            ctx.fillStyle = `rgba(255, 255, 255, ${pulse})`;
+            ctx.font = 'bold 12px monospace';
+            ctx.fillText('◀◀ SLOW MOTION ▶▶', canvas.width / 2, canvas.height - 15);
+
+            // Progress bar (in bottom letterbox)
+            const progress = frameIndex / replayBuffer.length;
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.fillRect(150, canvas.height - 30, 500, 4);
+            ctx.fillStyle = '#ffd700';
+            ctx.fillRect(150, canvas.height - 30, 500 * progress, 4);
+
+            // Advance frame (slow-mo)
+            replayFrame += replaySpeed;
+        }
+
+        function endReplay() {
+            isReplaying = false;
+            isRecording = true;
+            replayBuffer = [];
+            replayFrame = 0;
+            replayType = null;
+
+            // Now run the pending celebration
+            if (pendingCelebration) {
+                pendingCelebration();
+                pendingCelebration = null;
+            }
+        }
+
         function randomMessage(arr) {
             return arr[Math.floor(Math.random() * arr.length)];
         }
@@ -1421,6 +1627,12 @@
             shotCharging = false;
             shotPower = 0;
 
+            // Reset worldie and replay state
+            isWorldieAttempt = false;
+            worldieGoalScored = false;
+            replayBuffer = [];
+            isRecording = true;
+
             // Reset defenders - positioned further back, especially for 3-defender level
             const defSpeed = level.defenderSpeed || 2.0;
             const isThreeDefenders = level.defenders?.length === 3;
@@ -1517,7 +1729,7 @@
             await displayLeaderboard('gameOverLeaderboard');
         }
 
-        function handleGoal() {
+        function handleGoal(isPostGoal = false) {
             levelGoals++;
             const level = levels[currentLevel];
 
@@ -1537,10 +1749,6 @@
             const goalPoints = basePoints * comboMultiplier;
             totalScore += goalPoints;
 
-            // Screen shake on goal! Worldies shake more!
-            screenShake = isWorldie ? 20 : 10;
-            lastGoalTime = Date.now();
-
             document.getElementById('goals').textContent = levelGoals;
             document.getElementById('totalScore').textContent = totalScore;
 
@@ -1553,6 +1761,9 @@
                 // Worldie gets special treatment!
                 message = `🚀 ${randomMessage(worldieMessages)} +${goalPoints}pts`;
                 if (comboMultiplier > 1) message += ` (${comboMultiplier}x)`;
+            } else if (isPostGoal) {
+                message = `🎯 OFF THE POST AND IN! +${goalPoints}pts`;
+                if (comboMultiplier > 1) message += ` (${comboMultiplier}x)`;
             } else if (currentStreak >= 5) {
                 message = `🔥 ON FIRE! ${currentStreak} IN A ROW! +${goalPoints}pts (${comboMultiplier}x)`;
             } else if (currentStreak >= 3) {
@@ -1564,22 +1775,44 @@
             } else {
                 message = isFreeKick ? randomMessage(freeKickMessages) : randomMessage(goalMessages);
             }
-            document.getElementById('message').textContent = message;
 
-            gameState = 'celebrating';
-            salah.celebrating = true;
-            salah.celebrateFrame = 0;
+            // Define celebration function
+            const runCelebration = () => {
+                document.getElementById('message').textContent = message;
 
-            setTimeout(() => {
-                // In Sudden Death, never complete - just keep playing
-                if (isSuddenDeath) {
-                    resetPositions();
-                } else if (levelGoals >= level.target) {
-                    completeLevel();
-                } else {
-                    resetPositions();
+                // Screen shake on goal! Worldies shake more!
+                screenShake = isWorldie ? 20 : (isPostGoal ? 15 : 10);
+                lastGoalTime = Date.now();
+
+                gameState = 'celebrating';
+                salah.celebrating = true;
+                salah.celebrateFrame = 0;
+
+                setTimeout(() => {
+                    // In Sudden Death, never complete - just keep playing
+                    if (isSuddenDeath) {
+                        resetPositions();
+                    } else if (levelGoals >= level.target) {
+                        completeLevel();
+                    } else {
+                        resetPositions();
+                    }
+                }, 2000);
+            };
+
+            // Trigger instant replay for spectacular goals (worldies and post goals)
+            if ((isWorldie || isPostGoal) && !isFreeKick && replayBuffer.length >= 20) {
+                pendingCelebration = runCelebration;
+                const replayStarted = startReplay(isWorldie ? 'worldie' : 'post_in');
+                if (!replayStarted) {
+                    // Replay failed to start, just celebrate normally
+                    pendingCelebration = null;
+                    runCelebration();
                 }
-            }, 2000);
+            } else {
+                // Normal goal - just celebrate
+                runCelebration();
+            }
         }
 
         function handleMiss(isSave) {
@@ -2484,7 +2717,7 @@
                         // Small chance to go in off the bar (lucky bounce)
                         if (Math.random() < 0.15) {
                             document.getElementById('message').textContent = 'OFF THE BAR AND IN!!!';
-                            setTimeout(() => handleGoal(), 300);
+                            setTimeout(() => handleGoal(true), 300);
                         } else {
                             document.getElementById('message').textContent = 'OFF THE CROSSBAR!';
                             setTimeout(() => handleMiss(false), 1200);
@@ -2500,7 +2733,7 @@
                         // Small chance to go in off the post
                         if (Math.random() < 0.12) {
                             document.getElementById('message').textContent = 'OFF THE POST AND IN!!!';
-                            setTimeout(() => handleGoal(), 300);
+                            setTimeout(() => handleGoal(true), 300);
                         } else {
                             document.getElementById('message').textContent = 'OFF THE POST!';
                             setTimeout(() => handleMiss(false), 1200);
@@ -2563,6 +2796,21 @@
         }
 
         function gameLoop() {
+            // Record frames during shooting for replay
+            if (gameState === 'shooting' && !isReplaying) {
+                recordFrame();
+            }
+
+            // Handle replay mode
+            if (isReplaying) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.save();
+                drawReplayFrame();
+                ctx.restore();
+                requestAnimationFrame(gameLoop);
+                return;
+            }
+
             updateGame();
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
