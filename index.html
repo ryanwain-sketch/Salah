@@ -685,48 +685,22 @@
 
         document.getElementById('pauseBtn')?.addEventListener('click', togglePause);
 
-        // Tap canvas to unpause (when paused)
+        // Tap canvas to unpause (when paused) or lock free kick target
         canvas.addEventListener('click', (e) => {
             if (gamePaused && gameState !== 'menu' && gameState !== 'gameOver') {
                 togglePause();
             } else if (gameState === 'freeKick' && freeKickPhase === 'aim') {
-                handleFreeKickZoneClick(e);
+                // Tap to lock target, same as pressing shoot button
+                handleShootPress();
             }
         });
         canvas.addEventListener('touchend', (e) => {
             if (gamePaused && gameState !== 'menu' && gameState !== 'gameOver') {
                 e.preventDefault();
                 togglePause();
-            } else if (gameState === 'freeKick' && freeKickPhase === 'aim') {
-                e.preventDefault();
-                handleFreeKickZoneClick(e.changedTouches[0]);
             }
+            // Free kick tap handled by shoot button
         });
-
-        function handleFreeKickZoneClick(e) {
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
-            const x = (e.clientX - rect.left) * scaleX;
-            const y = (e.clientY - rect.top) * scaleY;
-
-            // Zone boundaries (matching drawFPVFreeKick zones)
-            // Left zone: x 220-340, y 130-260
-            // Center zone: x 340-460, y 130-260
-            // Right zone: x 460-580, y 130-260
-            if (y >= 130 && y <= 260) {
-                if (x >= 220 && x < 340) {
-                    fkSelectedZone = 'left';
-                    document.getElementById('message').textContent = 'LEFT CORNER! Hold SHOOT for power!';
-                } else if (x >= 340 && x < 460) {
-                    fkSelectedZone = 'center';
-                    document.getElementById('message').textContent = 'CENTER! Hold SHOOT for power!';
-                } else if (x >= 460 && x <= 580) {
-                    fkSelectedZone = 'right';
-                    document.getElementById('message').textContent = 'RIGHT CORNER! Hold SHOOT for power!';
-                }
-            }
-        }
 
         // Handle resize and orientation changes
         window.addEventListener('resize', resizeCanvas);
@@ -777,16 +751,19 @@
         let lastGoalTime = 0;
         let deathCount = 0; // Track deaths for ad breaks
 
-        // Free kick state - Simple 3-zone system
-        let freeKickPhase = 'aim'; // aim, flying, done
-        let fkSelectedZone = null; // 'left', 'center', 'right'
-        let fkBallPos = { x: 400, y: 450, z: 0 }; // Ball 3D position for animation
-        let fkBallVel = { x: 0, y: 0, z: 0 };
+        // Free kick state - Moving target system
+        let freeKickPhase = 'aim'; // aim, power, flying, done
+        let fkTargetX = 400; // Moving target X position
+        let fkTargetDir = 1; // Target movement direction
+        let fkTargetSpeed = 3; // How fast target moves
+        let fkBallPos = { x: 400, y: 400 }; // Ball position (2D for face-on view)
+        let fkBallTarget = { x: 400, y: 150 }; // Where ball is heading
+        let fkBallFlying = false;
         let fkPower = 0;
-        let wallPlayers = [];
-        let fkKeeperPos = { x: 400, y: 180 }; // Keeper position in FPV
+        let fkKeeperX = 400; // Keeper X position
         let fkKeeperDiving = false;
-        let fkKeeperDiveDir = 0;
+        let fkKeeperTargetX = 400;
+        let fkResult = null; // 'goal', 'save', 'over', 'post', 'wide'
 
         // Salah (player)
         const salah = {
@@ -849,6 +826,221 @@
             'Curled into the corner!', 'The wall had no chance!',
             'Absolutely magnificent!'
         ];
+        const worldieMessages = [
+            'WHAT A GOAL!!!', 'WORLDIE!!!', 'ABSOLUTE SCREAMER!!!',
+            'FROM DOWNTOWN!!!', 'TOP BINS!!!', 'UNSTOPPABLE!!!',
+            'ROCKET!!!', 'THUNDERBOLT!!!'
+        ];
+
+        // Worldie (long-range shot) state
+        let isWorldieAttempt = false;
+        let worldieGoalScored = false;
+
+        // Slow-mo replay system
+        const REPLAY_BUFFER_SIZE = 90; // ~1.5 seconds at 60fps
+        let replayBuffer = [];
+        let isRecording = true;
+        let isReplaying = false;
+        let replayFrame = 0;
+        let replaySpeed = 0.15; // Slow-mo speed
+        let replayType = null; // 'worldie', 'post_in', 'screamer'
+        let pendingCelebration = null; // Store celebration to run after replay
+
+        function recordFrame() {
+            if (!isRecording || isReplaying) return;
+
+            const frame = {
+                ballX: ball.x,
+                ballY: ball.y,
+                ballVelX: ball.velocityX,
+                ballVelY: ball.velocityY,
+                keeperX: alisson.x,
+                keeperY: alisson.y,
+                keeperDiving: alisson.diving,
+                keeperDiveDir: alisson.diveDirection,
+                salahX: salah.x,
+                salahY: salah.y,
+                kickFrame: salah.kickFrame,
+                gameState: gameState
+            };
+
+            replayBuffer.push(frame);
+            if (replayBuffer.length > REPLAY_BUFFER_SIZE) {
+                replayBuffer.shift();
+            }
+        }
+
+        function startReplay(type) {
+            if (replayBuffer.length < 20) return false; // Not enough frames
+
+            isReplaying = true;
+            isRecording = false;
+            replayFrame = 0;
+            replayType = type;
+            return true;
+        }
+
+        function drawReplayFrame() {
+            if (!isReplaying || replayBuffer.length === 0) return;
+
+            const frameIndex = Math.floor(replayFrame);
+            if (frameIndex >= replayBuffer.length) {
+                // Replay done
+                endReplay();
+                return;
+            }
+
+            const frame = replayBuffer[frameIndex];
+            const nextFrameIndex = Math.min(frameIndex + 1, replayBuffer.length - 1);
+            const nextFrame = replayBuffer[nextFrameIndex];
+            const t = replayFrame - frameIndex; // Interpolation factor
+
+            // Lerp helper
+            const lerp = (a, b, t) => a + (b - a) * t;
+
+            // Draw darkened background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw pitch (simplified)
+            ctx.fillStyle = '#2d5a27';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#347a2c';
+            for (let i = 0; i < 14; i++) {
+                if (i % 2 === 0) ctx.fillRect(0, i * 35, canvas.width, 35);
+            }
+
+            // Draw goal
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(goal.x, goal.y, goal.width, goal.postWidth);
+            ctx.fillRect(goal.x, goal.y + goal.height - goal.postWidth, goal.width, goal.postWidth);
+            ctx.fillRect(goal.x, goal.y, goal.postWidth, goal.height);
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 8; i++) {
+                ctx.beginPath();
+                ctx.moveTo(goal.x, goal.y + i * 25);
+                ctx.lineTo(goal.x + goal.width, goal.y + i * 25);
+                ctx.stroke();
+            }
+
+            // Interpolated positions
+            const ballX = lerp(frame.ballX, nextFrame.ballX, t);
+            const ballY = lerp(frame.ballY, nextFrame.ballY, t);
+            const keeperY = lerp(frame.keeperY, nextFrame.keeperY, t);
+
+            // Draw Salah
+            ctx.fillStyle = '#c8102e';
+            ctx.fillRect(frame.salahX - 16, frame.salahY - 24, 32, 48);
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(frame.salahX - 8, frame.salahY - 36, 16, 16);
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.arc(frame.salahX, frame.salahY - 32, 10, Math.PI, 0);
+            ctx.fill();
+
+            // Draw keeper
+            ctx.fillStyle = '#32CD32';
+            if (frame.keeperDiving) {
+                ctx.fillRect(alisson.x - 18, keeperY, 36, 52);
+            } else {
+                ctx.fillRect(alisson.x - 18, keeperY, 36, 52);
+            }
+            ctx.fillStyle = '#d4a574';
+            ctx.fillRect(alisson.x - 8, keeperY - 12, 16, 16);
+
+            // Draw ball with motion trail
+            const trailLength = 8;
+            for (let i = trailLength; i >= 0; i--) {
+                const trailIdx = Math.max(0, frameIndex - i * 2);
+                const trailFrame = replayBuffer[trailIdx];
+                const alpha = (1 - i / trailLength) * 0.6;
+                const size = ball.radius * (1 - i / trailLength * 0.5);
+
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(trailFrame.ballX, trailFrame.ballY, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Main ball
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(ballX, ballY, ball.radius + 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(ballX - 3, ballY - 3, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Dramatic vignette
+            const gradient = ctx.createRadialGradient(
+                canvas.width / 2, canvas.height / 2, 100,
+                canvas.width / 2, canvas.height / 2, 400
+            );
+            gradient.addColorStop(0, 'rgba(0,0,0,0)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0.6)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Scanlines effect (subtle CRT look)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            for (let y = 0; y < canvas.height; y += 4) {
+                ctx.fillRect(0, y, canvas.width, 2);
+            }
+
+            // Cinematic letterbox (black bars top and bottom)
+            const letterboxHeight = 40;
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, letterboxHeight);
+            ctx.fillRect(0, canvas.height - letterboxHeight, canvas.width, letterboxHeight);
+
+            // Glowing border on worldie
+            if (replayType === 'worldie') {
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.5)';
+                ctx.lineWidth = 6;
+                ctx.strokeRect(3, letterboxHeight + 3, canvas.width - 6, canvas.height - letterboxHeight * 2 - 6);
+            }
+
+            // Replay label (in top letterbox)
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold 18px monospace';
+            ctx.textAlign = 'center';
+            const replayText = replayType === 'worldie' ? '🎬 INSTANT REPLAY - WORLDIE!' :
+                              replayType === 'post_in' ? '🎬 INSTANT REPLAY - OFF THE POST!' :
+                              '🎬 INSTANT REPLAY';
+            ctx.fillText(replayText, canvas.width / 2, 26);
+
+            // "SLOW MOTION" text with pulsing effect
+            const pulse = 0.7 + Math.sin(Date.now() * 0.005) * 0.3;
+            ctx.fillStyle = `rgba(255, 255, 255, ${pulse})`;
+            ctx.font = 'bold 12px monospace';
+            ctx.fillText('◀◀ SLOW MOTION ▶▶', canvas.width / 2, canvas.height - 15);
+
+            // Progress bar (in bottom letterbox)
+            const progress = frameIndex / replayBuffer.length;
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.fillRect(150, canvas.height - 30, 500, 4);
+            ctx.fillStyle = '#ffd700';
+            ctx.fillRect(150, canvas.height - 30, 500 * progress, 4);
+
+            // Advance frame (slow-mo)
+            replayFrame += replaySpeed;
+        }
+
+        function endReplay() {
+            isReplaying = false;
+            isRecording = true;
+            replayBuffer = [];
+            replayFrame = 0;
+            replayType = null;
+
+            // Now run the pending celebration
+            if (pendingCelebration) {
+                pendingCelebration();
+                pendingCelebration = null;
+            }
+        }
 
         function randomMessage(arr) {
             return arr[Math.floor(Math.random() * arr.length)];
@@ -1272,9 +1464,11 @@
         function handleShootPress() {
             if (gameState === 'playing' && salah.hasBall && !shotCharging) {
                 startCharging();
-            } else if (gameState === 'freeKick' && freeKickPhase === 'aim' && fkSelectedZone && !shotCharging) {
-                // Only allow charging if a zone is selected
-                startCharging();
+            } else if (gameState === 'freeKick' && freeKickPhase === 'aim' && !shotCharging) {
+                // Lock target position and move to power phase
+                shootFPVFreeKick();
+            } else if (gameState === 'freeKick' && freeKickPhase === 'power' && !fkBallFlying) {
+                // Already in power phase, continue charging
             }
         }
 
@@ -1282,12 +1476,14 @@
             if (shotCharging) {
                 if (gameState === 'playing' && salah.hasBall) {
                     shootBall(shotPower);
-                } else if (gameState === 'freeKick' && freeKickPhase === 'aim' && fkSelectedZone) {
-                    // Shoot to the selected zone
+                } else if (gameState === 'freeKick' && freeKickPhase === 'power') {
+                    // Release the shot
                     shootFPVFreeKick();
                 }
-                shotCharging = false;
-                shotPower = 0;
+                if (gameState !== 'freeKick' || freeKickPhase !== 'power') {
+                    shotCharging = false;
+                    shotPower = 0;
+                }
             }
         }
 
@@ -1302,12 +1498,26 @@
             salah.hasBall = false;
             salah.kickFrame = 10;
 
+            // Detect worldie attempt (shooting from outside the box - x < 450)
+            const distanceFromGoal = goal.x - salah.x;
+            isWorldieAttempt = distanceFromGoal > 300; // About 300 pixels is "outside the box"
+            worldieGoalScored = false;
+
             const powerPercent = power / maxShotPower;
             const basePower = 10 + powerPercent * 8;
-            const aimVariance = (Math.random() - 0.5) * 60;
+            let aimVariance = (Math.random() - 0.5) * 60;
+
+            // Worldies are harder but have special properties
+            if (isWorldieAttempt) {
+                aimVariance *= 1.3; // Slightly less accurate
+                // Add curve for long range shots (dramatic effect)
+                ball.curve = (Math.random() - 0.5) * 0.15;
+            }
 
             let goingOver = false;
-            if (powerPercent > 0.75 && Math.random() < (powerPercent - 0.5) * 0.8) {
+            // Worldies need more power control
+            const overThreshold = isWorldieAttempt ? 0.65 : 0.75;
+            if (powerPercent > overThreshold && Math.random() < (powerPercent - 0.5) * 0.8) {
                 goingOver = true;
             }
 
@@ -1315,14 +1525,20 @@
             ball.active = true;
             ball.velocityX = basePower;
             ball.velocityY = (ball.targetY - ball.y) / ((goal.x - ball.x) / basePower);
-            ball.curve = 0;
+            if (!isWorldieAttempt) ball.curve = 0;
 
             const level = levels[currentLevel];
-            const reactionDelay = 100 + Math.random() * 150 + (powerPercent * 50);
+            // Keeper has slightly more time to react on long shots
+            const reactionDelay = isWorldieAttempt
+                ? 80 + Math.random() * 100 + (powerPercent * 30)
+                : 100 + Math.random() * 150 + (powerPercent * 50);
+
             setTimeout(() => {
                 if (gameState === 'shooting') {
                     const predictedY = ball.y + ball.velocityY * ((alisson.x - ball.x) / ball.velocityX);
-                    alisson.targetY = predictedY;
+                    // Keeper may misjudge curving long shots
+                    const curveEffect = isWorldieAttempt ? ball.curve * 40 : 0;
+                    alisson.targetY = predictedY + curveEffect;
                     alisson.diving = true;
                     alisson.diveDirection = predictedY > alisson.y ? 1 : -1;
                 }
@@ -1375,15 +1591,18 @@
                 gameState = 'freeKick';
                 freeKickPhase = 'aim';
                 setupWall(level.wallSize || 4);
-                // Reset free kick state
-                fkSelectedZone = null;
-                fkBallPos = { x: 400, y: 480, z: 0 };
-                fkBallVel = { x: 0, y: 0, z: 0 };
-                fkKeeperPos = { x: 400, y: 180 };
+                // Reset free kick state - new moving target system
+                fkTargetX = 400;
+                fkTargetDir = 1;
+                fkBallPos = { x: 400, y: 430 };
+                fkBallTarget = { x: 400, y: 150 };
+                fkBallFlying = false;
+                fkKeeperX = 400;
                 fkKeeperDiving = false;
-                fkKeeperDiveDir = 0;
+                fkKeeperTargetX = 400;
                 fkPower = 0;
-                document.getElementById('message').textContent = 'TAP a target zone, then HOLD SHOOT!';
+                fkResult = null;
+                document.getElementById('message').textContent = 'TAP to lock target, then HOLD for power!';
             } else {
                 salah.x = 200;
                 salah.y = 250;
@@ -1407,6 +1626,12 @@
             alisson.diveFrame = 0;
             shotCharging = false;
             shotPower = 0;
+
+            // Reset worldie and replay state
+            isWorldieAttempt = false;
+            worldieGoalScored = false;
+            replayBuffer = [];
+            isRecording = true;
 
             // Reset defenders - positioned further back, especially for 3-defender level
             const defSpeed = level.defenderSpeed || 2.0;
@@ -1504,7 +1729,7 @@
             await displayLeaderboard('gameOverLeaderboard');
         }
 
-        function handleGoal() {
+        function handleGoal(isPostGoal = false) {
             levelGoals++;
             const level = levels[currentLevel];
 
@@ -1515,14 +1740,14 @@
             // Calculate combo multiplier (max 5x)
             comboMultiplier = Math.min(5, 1 + Math.floor(currentStreak / 2));
 
-            // Base points with combo multiplier
-            const basePoints = level.suddenDeath ? 15 : 10;
+            // Check for worldie goal (long-range screamer)
+            const isWorldie = isWorldieAttempt && !level.freeKick;
+            if (isWorldie) worldieGoalScored = true;
+
+            // Base points with combo multiplier - worldies get 2x bonus!
+            const basePoints = level.suddenDeath ? 15 : (isWorldie ? 20 : 10);
             const goalPoints = basePoints * comboMultiplier;
             totalScore += goalPoints;
-
-            // Screen shake on goal!
-            screenShake = 10;
-            lastGoalTime = Date.now();
 
             document.getElementById('goals').textContent = levelGoals;
             document.getElementById('totalScore').textContent = totalScore;
@@ -1530,9 +1755,16 @@
             const isFreeKick = level.freeKick;
             const isSuddenDeath = level.suddenDeath;
 
-            // Dynamic message based on streak
+            // Dynamic message based on streak and worldie
             let message = '';
-            if (currentStreak >= 5) {
+            if (isWorldie) {
+                // Worldie gets special treatment!
+                message = `🚀 ${randomMessage(worldieMessages)} +${goalPoints}pts`;
+                if (comboMultiplier > 1) message += ` (${comboMultiplier}x)`;
+            } else if (isPostGoal) {
+                message = `🎯 OFF THE POST AND IN! +${goalPoints}pts`;
+                if (comboMultiplier > 1) message += ` (${comboMultiplier}x)`;
+            } else if (currentStreak >= 5) {
                 message = `🔥 ON FIRE! ${currentStreak} IN A ROW! +${goalPoints}pts (${comboMultiplier}x)`;
             } else if (currentStreak >= 3) {
                 message = `⚡ STREAK x${currentStreak}! +${goalPoints}pts (${comboMultiplier}x)`;
@@ -1543,22 +1775,44 @@
             } else {
                 message = isFreeKick ? randomMessage(freeKickMessages) : randomMessage(goalMessages);
             }
-            document.getElementById('message').textContent = message;
 
-            gameState = 'celebrating';
-            salah.celebrating = true;
-            salah.celebrateFrame = 0;
+            // Define celebration function
+            const runCelebration = () => {
+                document.getElementById('message').textContent = message;
 
-            setTimeout(() => {
-                // In Sudden Death, never complete - just keep playing
-                if (isSuddenDeath) {
-                    resetPositions();
-                } else if (levelGoals >= level.target) {
-                    completeLevel();
-                } else {
-                    resetPositions();
+                // Screen shake on goal! Worldies shake more!
+                screenShake = isWorldie ? 20 : (isPostGoal ? 15 : 10);
+                lastGoalTime = Date.now();
+
+                gameState = 'celebrating';
+                salah.celebrating = true;
+                salah.celebrateFrame = 0;
+
+                setTimeout(() => {
+                    // In Sudden Death, never complete - just keep playing
+                    if (isSuddenDeath) {
+                        resetPositions();
+                    } else if (levelGoals >= level.target) {
+                        completeLevel();
+                    } else {
+                        resetPositions();
+                    }
+                }, 2000);
+            };
+
+            // Trigger instant replay for spectacular goals (worldies and post goals)
+            if ((isWorldie || isPostGoal) && !isFreeKick && replayBuffer.length >= 20) {
+                pendingCelebration = runCelebration;
+                const replayStarted = startReplay(isWorldie ? 'worldie' : 'post_in');
+                if (!replayStarted) {
+                    // Replay failed to start, just celebrate normally
+                    pendingCelebration = null;
+                    runCelebration();
                 }
-            }, 2000);
+            } else {
+                // Normal goal - just celebrate
+                runCelebration();
+            }
         }
 
         function handleMiss(isSave) {
@@ -1932,401 +2186,453 @@
             }
         }
 
-        // ========== FPV FREE KICK SYSTEM ==========
+        // ========== FREE KICK SYSTEM - FACE-ON VIEW ==========
         function drawFPVFreeKick() {
-            // Sky gradient
-            const skyGrad = ctx.createLinearGradient(0, 0, 0, 250);
-            skyGrad.addColorStop(0, '#1a1a3e');
-            skyGrad.addColorStop(1, '#2d4a6e');
-            ctx.fillStyle = skyGrad;
-            ctx.fillRect(0, 0, canvas.width, 250);
-
-            // Stadium lights glow
-            ctx.fillStyle = 'rgba(255,255,200,0.1)';
-            ctx.beginPath();
-            ctx.arc(200, 50, 80, 0, Math.PI * 2);
-            ctx.arc(600, 50, 80, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Pitch - perspective
-            const pitchGrad = ctx.createLinearGradient(0, 250, 0, 500);
-            pitchGrad.addColorStop(0, '#2d5a27');
-            pitchGrad.addColorStop(1, '#1d4a17');
-            ctx.fillStyle = pitchGrad;
-            ctx.fillRect(0, 250, canvas.width, 250);
-
-            // Pitch stripes (perspective)
-            ctx.fillStyle = '#347a2c';
-            for (let i = 0; i < 8; i++) {
-                const y1 = 250 + i * 30;
-                const y2 = 250 + (i + 1) * 30;
-                if (i % 2 === 0) {
-                    ctx.beginPath();
-                    ctx.moveTo(0, y1);
-                    ctx.lineTo(canvas.width, y1);
-                    ctx.lineTo(canvas.width, y2);
-                    ctx.lineTo(0, y2);
-                    ctx.fill();
-                }
-            }
-
-            // Goal frame (perspective - larger at bottom)
-            const goalTop = 120;
-            const goalBottom = 280;
+            // Goal dimensions (face-on, rectangular)
             const goalLeft = 200;
             const goalRight = 600;
-            const goalTopLeft = 280;
-            const goalTopRight = 520;
+            const goalTop = 100;
+            const goalBottom = 280;
+            const goalWidth = goalRight - goalLeft;
+            const goalHeight = goalBottom - goalTop;
 
-            // Goal net
-            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-            ctx.lineWidth = 1;
-            for (let i = 0; i < 10; i++) {
-                const x1 = goalTopLeft + (goalLeft - goalTopLeft) * (i / 10);
-                const x2 = goalTopRight + (goalRight - goalTopRight) * (i / 10);
-                const y = goalTop + (goalBottom - goalTop) * (i / 10);
-                ctx.beginPath();
-                ctx.moveTo(x1, y);
-                ctx.lineTo(x2, y);
-                ctx.stroke();
-            }
-            for (let i = 0; i <= 8; i++) {
-                const topX = goalTopLeft + (goalTopRight - goalTopLeft) * (i / 8);
-                const botX = goalLeft + (goalRight - goalLeft) * (i / 8);
-                ctx.beginPath();
-                ctx.moveTo(topX, goalTop);
-                ctx.lineTo(botX, goalBottom);
-                ctx.stroke();
+            // Sky/stadium background
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, 300);
+            skyGrad.addColorStop(0, '#0a1628');
+            skyGrad.addColorStop(1, '#1a3a5c');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, canvas.width, 300);
+
+            // Stadium crowd (silhouette)
+            ctx.fillStyle = '#0d2137';
+            for (let i = 0; i < 40; i++) {
+                const x = i * 20;
+                const h = 30 + Math.sin(i * 0.5) * 15;
+                ctx.fillRect(x, 50, 18, h);
             }
 
-            // Goal posts
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 8;
+            // Floodlights
+            ctx.fillStyle = 'rgba(255,255,200,0.3)';
             ctx.beginPath();
-            ctx.moveTo(goalTopLeft, goalTop);
+            ctx.arc(100, 30, 40, 0, Math.PI * 2);
+            ctx.arc(700, 30, 40, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Pitch
+            ctx.fillStyle = '#2d5a27';
+            ctx.fillRect(0, 280, canvas.width, 220);
+
+            // Pitch stripes
+            ctx.fillStyle = '#347a2c';
+            for (let i = 0; i < 6; i++) {
+                if (i % 2 === 0) ctx.fillRect(0, 280 + i * 35, canvas.width, 35);
+            }
+
+            // Goal net (face-on grid)
+            ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+            ctx.lineWidth = 1;
+            // Horizontal lines
+            for (let i = 0; i <= 8; i++) {
+                const y = goalTop + (goalHeight / 8) * i;
+                ctx.beginPath();
+                ctx.moveTo(goalLeft, y);
+                ctx.lineTo(goalRight, y);
+                ctx.stroke();
+            }
+            // Vertical lines
+            for (let i = 0; i <= 12; i++) {
+                const x = goalLeft + (goalWidth / 12) * i;
+                ctx.beginPath();
+                ctx.moveTo(x, goalTop);
+                ctx.lineTo(x, goalBottom);
+                ctx.stroke();
+            }
+
+            // Goal frame (white posts and crossbar)
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 12;
+            // Left post
+            ctx.beginPath();
+            ctx.moveTo(goalLeft, goalTop);
             ctx.lineTo(goalLeft, goalBottom);
             ctx.stroke();
+            // Right post
             ctx.beginPath();
-            ctx.moveTo(goalTopRight, goalTop);
+            ctx.moveTo(goalRight, goalTop);
             ctx.lineTo(goalRight, goalBottom);
             ctx.stroke();
             // Crossbar
-            ctx.lineWidth = 6;
             ctx.beginPath();
-            ctx.moveTo(goalTopLeft, goalTop);
-            ctx.lineTo(goalTopRight, goalTop);
+            ctx.moveTo(goalLeft - 6, goalTop);
+            ctx.lineTo(goalRight + 6, goalTop);
             ctx.stroke();
 
-            // Keeper (Alisson) - FPV view
-            const keeperX = fkKeeperPos.x;
-            const keeperY = fkKeeperPos.y;
+            // Keeper (Alisson)
+            const keeperY = 200;
+            const keeperWidth = 50;
+            const keeperHeight = 70;
+
             if (fkKeeperDiving) {
-                // Diving keeper
-                ctx.fillStyle = '#32CD32';
-                ctx.fillRect(keeperX - 25 + fkKeeperDiveDir * 30, keeperY, 50, 20);
-                ctx.fillStyle = '#d4a574';
-                ctx.fillRect(keeperX - 10 + fkKeeperDiveDir * 40, keeperY - 5, 15, 15);
-                ctx.fillStyle = '#FFD700';
-                ctx.fillRect(keeperX - 30 + fkKeeperDiveDir * 50, keeperY, 12, 12);
+                // Diving keeper - stretched out
+                const diveOffset = (fkKeeperX - 400) * 0.5;
+                ctx.fillStyle = '#32CD32'; // Green kit
+                ctx.fillRect(fkKeeperX - 35 + diveOffset, keeperY + 20, 70, 25); // Body horizontal
+                ctx.fillStyle = '#d4a574'; // Skin
+                ctx.fillRect(fkKeeperX - 45 + diveOffset, keeperY + 15, 20, 20); // Head
+                ctx.fillStyle = '#FFD700'; // Gloves
+                ctx.fillRect(fkKeeperX + 30 + diveOffset, keeperY + 25, 20, 15); // Reaching hand
             } else {
                 // Standing keeper
                 ctx.fillStyle = '#32CD32';
-                ctx.fillRect(keeperX - 15, keeperY, 30, 50);
+                ctx.fillRect(fkKeeperX - keeperWidth/2, keeperY, keeperWidth, keeperHeight);
                 ctx.fillStyle = '#d4a574';
-                ctx.fillRect(keeperX - 10, keeperY - 15, 20, 20);
+                ctx.fillRect(fkKeeperX - 12, keeperY - 20, 24, 24); // Head
                 ctx.fillStyle = '#FFD700';
-                ctx.fillRect(keeperX - 25, keeperY + 10, 12, 15);
-                ctx.fillRect(keeperX + 13, keeperY + 10, 12, 15);
+                ctx.fillRect(fkKeeperX - 35, keeperY + 15, 15, 20); // Left glove
+                ctx.fillRect(fkKeeperX + 20, keeperY + 15, 15, 20); // Right glove
             }
 
-            // Wall of defenders (facing camera!)
-            const wallY = 320;
+            // Wall of defenders
             const level = levels[currentLevel];
-            const wallSize = level.wallSize || 3;
-            const wallSpacing = 45;
+            const wallSize = level?.wallSize || 3;
+            const wallY = 320;
+            const wallSpacing = 50;
             const wallStartX = 400 - ((wallSize - 1) * wallSpacing) / 2;
 
             for (let i = 0; i < wallSize; i++) {
                 const wx = wallStartX + i * wallSpacing;
-                // Body (facing us)
+                // Body
                 ctx.fillStyle = '#c8102e';
-                ctx.fillRect(wx - 18, wallY, 36, 45);
+                ctx.fillRect(wx - 15, wallY, 30, 40);
                 // Head
                 ctx.fillStyle = '#d4a574';
-                ctx.fillRect(wx - 12, wallY - 18, 24, 22);
+                ctx.fillRect(wx - 10, wallY - 15, 20, 18);
                 // Hair
                 ctx.fillStyle = '#1a1a1a';
-                ctx.fillRect(wx - 12, wallY - 18, 24, 8);
-                // Eyes (looking at ball nervously)
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(wx - 8, wallY - 8, 7, 5);
-                ctx.fillRect(wx + 1, wallY - 8, 7, 5);
-                ctx.fillStyle = '#000';
-                ctx.fillRect(wx - 5, wallY - 7, 3, 3);
-                ctx.fillRect(wx + 4, wallY - 7, 3, 3);
-                // Hands covering... area
+                ctx.fillRect(wx - 10, wallY - 15, 20, 6);
+                // Hands protecting
                 ctx.fillStyle = '#d4a574';
-                ctx.fillRect(wx - 10, wallY + 30, 20, 12);
-                // Legs
-                ctx.fillStyle = '#c8102e';
-                ctx.fillRect(wx - 14, wallY + 45, 12, 20);
-                ctx.fillRect(wx + 2, wallY + 45, 12, 20);
+                ctx.fillRect(wx - 8, wallY + 25, 16, 10);
             }
 
-            // Player lying BEHIND the wall
-            ctx.fillStyle = '#c8102e';
-            ctx.fillRect(340, wallY + 65, 50, 12);
-            ctx.fillStyle = '#d4a574';
-            ctx.fillRect(330, wallY + 63, 12, 12);
-
-            // 3 TAPPABLE TARGET ZONES
-            if (freeKickPhase === 'aim') {
-                // Zone definitions
-                const zones = [
-                    { id: 'left', x: 220, y: 130, w: 120, h: 130, label: 'LEFT', chance: '70%' },
-                    { id: 'center', x: 340, y: 130, w: 120, h: 130, label: 'CENTER', chance: '40%' },
-                    { id: 'right', x: 460, y: 130, w: 120, h: 130, label: 'RIGHT', chance: '70%' }
-                ];
-
-                zones.forEach(zone => {
-                    const isSelected = fkSelectedZone === zone.id;
-                    const isCorner = zone.id !== 'center';
-
-                    // Zone background
-                    if (isSelected) {
-                        ctx.fillStyle = 'rgba(74, 222, 128, 0.5)'; // Green when selected
-                    } else if (isCorner) {
-                        ctx.fillStyle = 'rgba(0, 255, 0, 0.15)'; // Light green for corners
-                    } else {
-                        ctx.fillStyle = 'rgba(255, 165, 0, 0.15)'; // Orange for center
-                    }
-                    ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
-
-                    // Zone border
-                    ctx.strokeStyle = isSelected ? '#4ade80' : '#fff';
-                    ctx.lineWidth = isSelected ? 4 : 2;
-                    ctx.strokeRect(zone.x, zone.y, zone.w, zone.h);
-
-                    // Zone label
-                    ctx.fillStyle = isSelected ? '#4ade80' : '#fff';
-                    ctx.font = isSelected ? 'bold 16px monospace' : 'bold 14px monospace';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(zone.label, zone.x + zone.w / 2, zone.y + zone.h / 2 - 10);
-
-                    // Score chance
-                    ctx.font = '11px monospace';
-                    ctx.fillStyle = isCorner ? '#4ade80' : '#fbbf24';
-                    ctx.fillText(zone.chance + ' score', zone.x + zone.w / 2, zone.y + zone.h / 2 + 10);
-                });
+            // Moving target indicator (during aim phase)
+            if (freeKickPhase === 'aim' && !fkBallFlying) {
+                // Target reticle
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(fkTargetX, 180, 25, 0, Math.PI * 2);
+                ctx.stroke();
+                // Crosshair
+                ctx.beginPath();
+                ctx.moveTo(fkTargetX - 35, 180);
+                ctx.lineTo(fkTargetX - 15, 180);
+                ctx.moveTo(fkTargetX + 15, 180);
+                ctx.lineTo(fkTargetX + 35, 180);
+                ctx.moveTo(fkTargetX, 180 - 35);
+                ctx.lineTo(fkTargetX, 180 - 15);
+                ctx.moveTo(fkTargetX, 180 + 15);
+                ctx.lineTo(fkTargetX, 180 + 35);
+                ctx.stroke();
 
                 // Instructions
                 ctx.fillStyle = '#ffd700';
-                ctx.font = 'bold 16px monospace';
+                ctx.font = 'bold 18px monospace';
                 ctx.textAlign = 'center';
-                if (!fkSelectedZone) {
-                    ctx.fillText('TAP A TARGET ZONE!', 400, 75);
-                    ctx.font = '12px monospace';
-                    ctx.fillStyle = '#fff';
-                    ctx.fillText('Corners are easier to score', 400, 95);
-                } else {
-                    ctx.fillStyle = '#4ade80';
-                    ctx.fillText(fkSelectedZone.toUpperCase() + ' SELECTED!', 400, 75);
-                    ctx.font = '12px monospace';
-                    ctx.fillStyle = '#fff';
-                    ctx.fillText('Hold SHOOT button for power!', 400, 95);
-                }
-                ctx.fillText('TAP zone to aim | HOLD SHOOT for power', 400, 470);
-                ctx.textAlign = 'left';
+                ctx.fillText('TAP or HOLD SHOOT to lock target!', 400, 60);
+                ctx.font = '12px monospace';
+                ctx.fillStyle = '#fff';
+                ctx.fillText('Target moves - time it right!', 400, 80);
             }
 
-            // Power meter (when charging with zone selected)
-            if (shotCharging && freeKickPhase === 'aim' && fkSelectedZone) {
-                const pw = 200;
-                const ph = 25;
-                const px = 300;
+            // Locked target indicator (during power/flying phases)
+            if ((freeKickPhase === 'power' || freeKickPhase === 'flying') && !fkResult) {
+                ctx.strokeStyle = '#4ade80';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.arc(fkBallTarget.x, 180, 20, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Power meter (when charging)
+            if (freeKickPhase === 'power') {
+                const pw = 300;
+                const ph = 30;
+                const px = 250;
                 const py = 420;
-                const fill = (shotPower / maxShotPower) * pw;
-
-                ctx.fillStyle = 'rgba(0,0,0,0.8)';
-                ctx.fillRect(px - 10, py - 30, pw + 20, ph + 50);
-
                 const powerPct = shotPower / maxShotPower;
-                ctx.fillStyle = powerPct < 0.5 ? '#4ade80' : powerPct < 0.8 ? '#fbbf24' : '#ef4444';
-                ctx.fillRect(px, py, fill, ph);
+                const fill = powerPct * pw;
 
+                // Background
+                ctx.fillStyle = 'rgba(0,0,0,0.8)';
+                ctx.fillRect(px - 15, py - 40, pw + 30, ph + 70);
+
+                // Power zones visualization
+                ctx.fillStyle = '#ef4444'; // Red - too weak (hits wall)
+                ctx.fillRect(px, py, pw * 0.2, ph);
+                ctx.fillStyle = '#4ade80'; // Green - good zone
+                ctx.fillRect(px + pw * 0.2, py, pw * 0.5, ph);
+                ctx.fillStyle = '#ef4444'; // Red - too strong (over)
+                ctx.fillRect(px + pw * 0.7, py, pw * 0.3, ph);
+
+                // Sweet spot marker at 50%
+                ctx.fillStyle = '#ffd700';
+                ctx.fillRect(px + pw * 0.48, py - 5, 4, ph + 10);
+
+                // Current power indicator
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(px + fill - 3, py - 8, 6, ph + 16);
+
+                // Border
                 ctx.strokeStyle = '#fff';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(px, py, pw, ph);
 
+                // Labels
                 ctx.fillStyle = '#fff';
-                ctx.font = 'bold 12px monospace';
+                ctx.font = 'bold 14px monospace';
                 ctx.textAlign = 'center';
-                ctx.fillText('POWER', 400, py - 10);
-                ctx.font = '11px monospace';
-                if (powerPct < 0.5) ctx.fillText('Good power - release!', 400, py + 45);
-                else if (powerPct < 0.8) ctx.fillText('Strong shot!', 400, py + 45);
-                else ctx.fillText('MAX POWER!', 400, py + 45);
-                ctx.textAlign = 'left';
+                ctx.fillText('POWER - Release to shoot!', 400, py - 20);
+                ctx.font = '10px monospace';
+                ctx.fillText('WALL', px + pw * 0.1, py + ph + 15);
+                ctx.fillText('PERFECT', px + pw * 0.45, py + ph + 15);
+                ctx.fillText('OVER', px + pw * 0.85, py + ph + 15);
+
+                // Locked target shown
+                ctx.fillStyle = '#4ade80';
+                ctx.font = '12px monospace';
+                ctx.fillText('Target locked at X: ' + Math.round(fkBallTarget.x), 400, py + ph + 35);
             }
 
-            // Ball in flight
-            if (freeKickPhase === 'flying') {
-                const ballSize = 15 - fkBallPos.z * 0.03;
-                const ballScreenX = fkBallPos.x;
-                const ballScreenY = fkBallPos.y - fkBallPos.z * 0.5;
-
+            // Ball
+            if (fkBallFlying) {
+                // Ball in flight
                 ctx.fillStyle = '#fff';
                 ctx.beginPath();
-                ctx.arc(ballScreenX, ballScreenY, Math.max(ballSize, 3), 0, Math.PI * 2);
+                ctx.arc(fkBallPos.x, fkBallPos.y, 12, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.fillStyle = '#333';
                 ctx.beginPath();
-                ctx.arc(ballScreenX - 2, ballScreenY - 2, ballSize * 0.3, 0, Math.PI * 2);
+                ctx.arc(fkBallPos.x - 3, fkBallPos.y - 3, 4, 0, Math.PI * 2);
                 ctx.fill();
-            }
-
-            // Ball at feet (before shot)
-            if (freeKickPhase === 'aim') {
+            } else if (freeKickPhase !== 'done') {
+                // Ball at feet
                 ctx.fillStyle = '#fff';
                 ctx.beginPath();
-                ctx.arc(400, 480, 12, 0, Math.PI * 2);
+                ctx.arc(400, 430, 12, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.fillStyle = '#333';
                 ctx.beginPath();
-                ctx.arc(396, 476, 4, 0, Math.PI * 2);
+                ctx.arc(397, 427, 4, 0, Math.PI * 2);
                 ctx.fill();
             }
+
+            // Result message
+            if (freeKickPhase === 'done' && fkResult) {
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(200, 180, 400, 80);
+                ctx.font = 'bold 28px monospace';
+                ctx.textAlign = 'center';
+                if (fkResult === 'goal') {
+                    ctx.fillStyle = '#4ade80';
+                    ctx.fillText('GOAL!!!', 400, 230);
+                } else if (fkResult === 'save') {
+                    ctx.fillStyle = '#fbbf24';
+                    ctx.fillText('SAVED!', 400, 230);
+                } else if (fkResult === 'over') {
+                    ctx.fillStyle = '#ef4444';
+                    ctx.fillText('OVER THE BAR!', 400, 230);
+                } else if (fkResult === 'post') {
+                    ctx.fillStyle = '#fbbf24';
+                    ctx.fillText('OFF THE POST!', 400, 230);
+                } else if (fkResult === 'wall') {
+                    ctx.fillStyle = '#ef4444';
+                    ctx.fillText('BLOCKED BY WALL!', 400, 230);
+                } else {
+                    ctx.fillStyle = '#ef4444';
+                    ctx.fillText('WIDE!', 400, 230);
+                }
+            }
+
+            ctx.textAlign = 'left';
         }
 
         function updateFPVFreeKick() {
-            // No joystick aiming needed - user taps zones directly
+            const goalLeft = 200;
+            const goalRight = 600;
 
-            // Ball in flight physics
-            if (freeKickPhase === 'flying') {
-                fkBallPos.x += fkBallVel.x;
-                fkBallPos.y += fkBallVel.y;
-                fkBallPos.z += fkBallVel.z;
-
-                // Gravity effect on arc
-                if (fkBallVel.z > 0) {
-                    fkBallVel.z -= 0.10;
+            // Phase: AIM - target moves back and forth
+            if (freeKickPhase === 'aim' && !fkBallFlying) {
+                fkTargetX += fkTargetDir * fkTargetSpeed;
+                // Bounce off goal posts
+                if (fkTargetX <= goalLeft + 30) {
+                    fkTargetX = goalLeft + 30;
+                    fkTargetDir = 1;
                 }
+                if (fkTargetX >= goalRight - 30) {
+                    fkTargetX = goalRight - 30;
+                    fkTargetDir = -1;
+                }
+            }
 
-                // Keeper reaction - decides which way to dive
-                if (!fkKeeperDiving && fkBallPos.z > 40) {
-                    fkKeeperDiving = true;
-                    // Keeper dives based on zone - often wrong for corners!
-                    if (fkSelectedZone === 'left') {
-                        // 80% chance keeper dives wrong way for corners
-                        fkKeeperDiveDir = Math.random() < 0.80 ? 1 : -1;
-                    } else if (fkSelectedZone === 'right') {
-                        fkKeeperDiveDir = Math.random() < 0.80 ? -1 : 1;
-                    } else {
-                        // Center: keeper stays put 60% of time
-                        if (Math.random() < 0.6) {
-                            fkKeeperDiveDir = 0;
-                        } else {
-                            fkKeeperDiveDir = Math.random() < 0.5 ? -1 : 1;
-                        }
+            // Phase: POWER - charging shot
+            if (freeKickPhase === 'power') {
+                // Power is updated in main updateGame
+            }
+
+            // Phase: FLYING - ball moving towards goal
+            if (freeKickPhase === 'flying' || fkBallFlying) {
+                // Move ball towards target
+                const dx = fkBallTarget.x - fkBallPos.x;
+                const dy = fkBallTarget.y - fkBallPos.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist > 10) {
+                    fkBallPos.x += dx * 0.08;
+                    fkBallPos.y += dy * 0.08;
+
+                    // Keeper reacts and dives
+                    if (!fkKeeperDiving && fkBallPos.y < 350) {
+                        fkKeeperDiving = true;
+                        fkKeeperTargetX = fkBallTarget.x;
                     }
-                }
 
-                // Move keeper - but CLAMP to stay on screen!
-                if (fkKeeperDiving && fkKeeperDiveDir !== 0) {
-                    fkKeeperPos.x += fkKeeperDiveDir * 5;
-                    // Keep keeper within goal bounds (posts are ~280 to ~520)
-                    fkKeeperPos.x = Math.max(290, Math.min(510, fkKeeperPos.x));
-                }
-
-                // Check if ball reached goal (only trigger once!)
-                if (fkBallPos.z > 150) {
+                    // Move keeper towards ball
+                    if (fkKeeperDiving) {
+                        const keeperDx = fkKeeperTargetX - fkKeeperX;
+                        fkKeeperX += keeperDx * 0.12;
+                        // Clamp keeper to goal
+                        fkKeeperX = Math.max(goalLeft + 30, Math.min(goalRight - 30, fkKeeperX));
+                    }
+                } else {
+                    // Ball reached target area - determine result
+                    fkBallFlying = false;
                     freeKickPhase = 'done';
 
-                    // Simpler goal detection - based on where ball is heading
-                    const ballHeadingX = fkBallPos.x;
+                    const powerPct = fkPower / maxShotPower;
+                    const targetX = fkBallTarget.x;
 
-                    // Goal bounds (wide and forgiving)
-                    const leftPost = 250;
-                    const rightPost = 550;
-
-                    // Is keeper in the way?
-                    const keeperDist = Math.abs(ballHeadingX - fkKeeperPos.x);
-                    const keeperSaveRange = 50; // Keeper can save within 50px
-
-                    // Check if ball is heading into goal area
-                    const headingIntoGoal = ballHeadingX > leftPost && ballHeadingX < rightPost;
-
-                    // Simple outcome logic
-                    if (!headingIntoGoal) {
-                        // Missed wide
-                        document.getElementById('message').textContent = ballHeadingX < leftPost ? 'WIDE LEFT!' : 'WIDE RIGHT!';
+                    // Power-based outcomes
+                    if (powerPct < 0.20) {
+                        // Too weak - hits wall
+                        fkResult = 'wall';
+                        document.getElementById('message').textContent = 'BLOCKED BY THE WALL!';
                         handleMiss(false);
-                    } else if (keeperDist < keeperSaveRange) {
-                        // Keeper saves it
-                        document.getElementById('message').textContent = randomMessage(saveMessages);
-                        handleMiss(true);
+                    } else if (powerPct > 0.70) {
+                        // Too strong - goes over
+                        fkResult = 'over';
+                        document.getElementById('message').textContent = 'OVER THE BAR!';
+                        handleMiss(false);
                     } else {
-                        // GOAL! Keeper was wrong way
-                        // Small chance of post/bar drama
-                        const rand = Math.random();
-                        if (rand < 0.05) {
-                            document.getElementById('message').textContent = 'OFF THE POST AND IN!!!';
-                        } else if (rand < 0.08) {
-                            document.getElementById('message').textContent = 'OFF THE BAR AND IN!!!';
-                        } else {
-                            document.getElementById('message').textContent = randomMessage(freeKickMessages);
+                        // Good power range (20-70%) - check if keeper saves
+                        const keeperDist = Math.abs(targetX - fkKeeperX);
+
+                        // Calculate score chance based on power (50% is optimal)
+                        const optimalPower = 0.50;
+                        const powerDiff = Math.abs(powerPct - optimalPower);
+                        const baseChance = 0.70; // 70% base chance in good zone
+                        const bonusChance = (0.25 - powerDiff) * 0.4; // Up to 10% bonus at 50%
+                        const scoreChance = baseChance + Math.max(0, bonusChance);
+
+                        // Post chance (rare)
+                        const nearPost = targetX < goalLeft + 50 || targetX > goalRight - 50;
+                        if (nearPost && Math.random() < 0.15) {
+                            if (Math.random() < 0.3) {
+                                // Off post and IN!
+                                fkResult = 'goal';
+                                document.getElementById('message').textContent = 'OFF THE POST AND IN!!!';
+                                handleGoal();
+                            } else {
+                                fkResult = 'post';
+                                document.getElementById('message').textContent = 'OFF THE POST!';
+                                handleMiss(false);
+                            }
+                            return;
                         }
-                        handleGoal();
+
+                        // Keeper save check - keeper must be close
+                        if (keeperDist < 45) {
+                            // Keeper is there - might save
+                            if (Math.random() > scoreChance * 0.5) {
+                                fkResult = 'save';
+                                fkKeeperX = targetX; // Keeper reaches the ball
+                                document.getElementById('message').textContent = randomMessage(saveMessages);
+                                handleMiss(true);
+                                return;
+                            }
+                        }
+
+                        // GOAL!
+                        if (Math.random() < scoreChance) {
+                            fkResult = 'goal';
+                            document.getElementById('message').textContent = randomMessage(freeKickMessages);
+                            handleGoal();
+                        } else {
+                            // Unlucky miss
+                            fkResult = Math.random() < 0.5 ? 'wide' : 'save';
+                            document.getElementById('message').textContent = fkResult === 'save' ? randomMessage(saveMessages) : 'WIDE!';
+                            handleMiss(fkResult === 'save');
+                        }
                     }
                 }
             }
         }
 
         function shootFPVFreeKick() {
-            freeKickPhase = 'flying';
-            fkPower = shotPower;
-            const powerPct = fkPower / maxShotPower;
-
-            // Simple target based on zone - ball reliably goes where you aim
-            let targetX;
-            if (fkSelectedZone === 'left') {
-                targetX = 300 + Math.random() * 30; // Left side of goal
-            } else if (fkSelectedZone === 'right') {
-                targetX = 470 + Math.random() * 30; // Right side of goal
-            } else {
-                targetX = 385 + Math.random() * 30; // Center
+            if (freeKickPhase === 'aim') {
+                // Lock target and start power phase
+                fkBallTarget.x = fkTargetX;
+                freeKickPhase = 'power';
+                shotCharging = true;
+                chargeStartTime = Date.now();
+                document.getElementById('message').textContent = 'HOLD for power... RELEASE to shoot!';
+            } else if (freeKickPhase === 'power') {
+                // Release shot
+                fkPower = shotPower;
+                freeKickPhase = 'flying';
+                fkBallFlying = true;
+                fkBallPos = { x: 400, y: 430 };
+                shotCharging = false;
+                shotPower = 0;
             }
-
-            // Ball velocity - simple and reliable
-            const dx = targetX - 400;
-            fkBallVel.x = dx * 0.06;
-            fkBallVel.y = -8; // Always moves towards goal
-            fkBallVel.z = 4 + powerPct * 3; // Gentle arc
-
-            // Reset ball position
-            fkBallPos = { x: 400, y: 480, z: 0 };
-
-            shotCharging = false;
-            shotPower = 0;
-
-            // Safety timeout - if ball doesn't reach goal in 5 seconds, force completion
-            setTimeout(() => {
-                if (freeKickPhase === 'flying') {
-                    console.log('Free kick safety timeout triggered');
-                    freeKickPhase = 'done';
-                    document.getElementById('message').textContent = randomMessage(missMessages);
-                    handleMiss(false);
-                }
-            }, 5000);
         }
 
         function drawCelebration() {
             if (gameState === 'celebrating') {
-                ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                for (let i = 0; i < 20; i++) {
-                    ctx.fillStyle = ['#c8102e', '#ffd700', '#fff'][Math.floor(Math.random() * 3)];
-                    ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 8, 8);
+                if (worldieGoalScored) {
+                    // WORLDIE celebration - more intense!
+                    ctx.fillStyle = 'rgba(255, 100, 0, 0.4)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    // More confetti for worldies
+                    for (let i = 0; i < 40; i++) {
+                        ctx.fillStyle = ['#ff4500', '#ffd700', '#fff', '#ff0'][Math.floor(Math.random() * 4)];
+                        const size = 6 + Math.random() * 10;
+                        ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, size, size);
+                    }
+
+                    // "WHAT A GOAL!" text effect
+                    const time = Date.now() * 0.01;
+                    ctx.save();
+                    ctx.translate(canvas.width / 2, 80);
+                    ctx.rotate(Math.sin(time) * 0.05);
+                    ctx.font = 'bold 36px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#000';
+                    ctx.fillText('WHAT A GOAL!', 2, 2);
+                    ctx.fillStyle = '#ffd700';
+                    ctx.fillText('WHAT A GOAL!', 0, 0);
+                    ctx.restore();
+                } else {
+                    // Normal celebration
+                    ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    for (let i = 0; i < 20; i++) {
+                        ctx.fillStyle = ['#c8102e', '#ffd700', '#fff'][Math.floor(Math.random() * 3)];
+                        ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 8, 8);
+                    }
                 }
             }
         }
@@ -2398,17 +2704,68 @@
                     }
                 }
 
+                // Post/bar hit check (before goal check)
+                if (ball.x >= goal.x - 5 && ball.x <= goal.x + 15 && gameState === 'shooting') {
+                    const topPost = goal.y + goal.postWidth;
+                    const bottomPost = goal.y + goal.height - goal.postWidth;
+
+                    // Crossbar hit (ball near top of goal)
+                    if (ball.y >= goal.y - 10 && ball.y <= topPost + 5) {
+                        ball.velocityX = -ball.velocityX * 0.6;
+                        ball.velocityY = Math.abs(ball.velocityY) * 0.8 + 2;
+                        screenShake = 8;
+                        // Small chance to go in off the bar (lucky bounce)
+                        if (Math.random() < 0.15) {
+                            document.getElementById('message').textContent = 'OFF THE BAR AND IN!!!';
+                            setTimeout(() => handleGoal(true), 300);
+                        } else {
+                            document.getElementById('message').textContent = 'OFF THE CROSSBAR!';
+                            setTimeout(() => handleMiss(false), 1200);
+                        }
+                        gameState = 'saved';
+                    }
+                    // Left/right post hit
+                    else if ((ball.y > goal.y - 5 && ball.y <= topPost + 10) ||
+                             (ball.y >= bottomPost - 10 && ball.y < goal.y + goal.height + 5)) {
+                        ball.velocityX = -ball.velocityX * 0.5;
+                        ball.velocityY = (Math.random() - 0.5) * 6;
+                        screenShake = 6;
+                        // Small chance to go in off the post
+                        if (Math.random() < 0.12) {
+                            document.getElementById('message').textContent = 'OFF THE POST AND IN!!!';
+                            setTimeout(() => handleGoal(true), 300);
+                        } else {
+                            document.getElementById('message').textContent = 'OFF THE POST!';
+                            setTimeout(() => handleMiss(false), 1200);
+                        }
+                        gameState = 'saved';
+                    }
+                }
+
                 // Goal check
                 if (ball.x >= goal.x && ball.y > goal.y + goal.postWidth && ball.y < goal.y + goal.height - goal.postWidth) {
                     if (gameState === 'shooting') handleGoal();
                 }
 
-                // Save check
-                if (ball.x > alisson.x - 20 && ball.x < alisson.x + alisson.width + 20 &&
-                    ball.y > alisson.y - 10 && ball.y < alisson.y + alisson.height + 20) {
+                // Save check - tighter collision so ball must actually touch keeper
+                const ballRadius = ball.radius || 8;
+                const keeperHitBox = {
+                    left: alisson.x - 5,
+                    right: alisson.x + alisson.width + 5,
+                    top: alisson.y - 5,
+                    bottom: alisson.y + alisson.height + 5
+                };
+
+                if (ball.x + ballRadius > keeperHitBox.left &&
+                    ball.x - ballRadius < keeperHitBox.right &&
+                    ball.y + ballRadius > keeperHitBox.top &&
+                    ball.y - ballRadius < keeperHitBox.bottom) {
                     if (gameState === 'shooting') {
-                        ball.velocityX = -ball.velocityX * 0.5;
-                        ball.velocityY = (Math.random() - 0.5) * 5;
+                        // Ball definitely touches keeper - make save visual
+                        ball.x = alisson.x + alisson.width / 2;
+                        ball.y = alisson.y + alisson.height / 2;
+                        ball.velocityX = -ball.velocityX * 0.4;
+                        ball.velocityY = (Math.random() - 0.5) * 4;
                         handleMiss(true);
                     }
                 }
@@ -2426,7 +2783,8 @@
             if (alisson.diving) {
                 alisson.diveFrame++;
                 const targetY = Math.max(goal.y, Math.min(goal.y + goal.height - alisson.height, alisson.targetY));
-                alisson.y += (targetY - alisson.y) * 0.15;
+                // Slower dive speed so more goals go in (was 0.15)
+                alisson.y += (targetY - alisson.y) * 0.12;
             } else if (gameState === 'playing') {
                 const targetY = ball.y - alisson.height / 2;
                 const clampedTarget = Math.max(goal.y, Math.min(goal.y + goal.height - alisson.height, targetY));
@@ -2438,6 +2796,21 @@
         }
 
         function gameLoop() {
+            // Record frames during shooting for replay
+            if (gameState === 'shooting' && !isReplaying) {
+                recordFrame();
+            }
+
+            // Handle replay mode
+            if (isReplaying) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.save();
+                drawReplayFrame();
+                ctx.restore();
+                requestAnimationFrame(gameLoop);
+                return;
+            }
+
             updateGame();
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -2454,8 +2827,8 @@
 
             const level = levels[currentLevel];
 
-            // FPV mode for free kicks
-            if (level?.freeKick && (gameState === 'freeKick' || freeKickPhase === 'flying')) {
+            // FPV mode for free kicks (continue showing during celebrating/saved states)
+            if (level?.freeKick && (gameState === 'freeKick' || gameState === 'celebrating' || gameState === 'saved' || fkBallFlying)) {
                 // Update FPV free kick logic
                 updateFPVFreeKick();
                 // Draw FPV view
