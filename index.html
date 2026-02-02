@@ -826,6 +826,15 @@
             'Curled into the corner!', 'The wall had no chance!',
             'Absolutely magnificent!'
         ];
+        const worldieMessages = [
+            'WHAT A GOAL!!!', 'WORLDIE!!!', 'ABSOLUTE SCREAMER!!!',
+            'FROM DOWNTOWN!!!', 'TOP BINS!!!', 'UNSTOPPABLE!!!',
+            'ROCKET!!!', 'THUNDERBOLT!!!'
+        ];
+
+        // Worldie (long-range shot) state
+        let isWorldieAttempt = false;
+        let worldieGoalScored = false;
 
         function randomMessage(arr) {
             return arr[Math.floor(Math.random() * arr.length)];
@@ -1283,12 +1292,26 @@
             salah.hasBall = false;
             salah.kickFrame = 10;
 
+            // Detect worldie attempt (shooting from outside the box - x < 450)
+            const distanceFromGoal = goal.x - salah.x;
+            isWorldieAttempt = distanceFromGoal > 300; // About 300 pixels is "outside the box"
+            worldieGoalScored = false;
+
             const powerPercent = power / maxShotPower;
             const basePower = 10 + powerPercent * 8;
-            const aimVariance = (Math.random() - 0.5) * 60;
+            let aimVariance = (Math.random() - 0.5) * 60;
+
+            // Worldies are harder but have special properties
+            if (isWorldieAttempt) {
+                aimVariance *= 1.3; // Slightly less accurate
+                // Add curve for long range shots (dramatic effect)
+                ball.curve = (Math.random() - 0.5) * 0.15;
+            }
 
             let goingOver = false;
-            if (powerPercent > 0.75 && Math.random() < (powerPercent - 0.5) * 0.8) {
+            // Worldies need more power control
+            const overThreshold = isWorldieAttempt ? 0.65 : 0.75;
+            if (powerPercent > overThreshold && Math.random() < (powerPercent - 0.5) * 0.8) {
                 goingOver = true;
             }
 
@@ -1296,14 +1319,20 @@
             ball.active = true;
             ball.velocityX = basePower;
             ball.velocityY = (ball.targetY - ball.y) / ((goal.x - ball.x) / basePower);
-            ball.curve = 0;
+            if (!isWorldieAttempt) ball.curve = 0;
 
             const level = levels[currentLevel];
-            const reactionDelay = 100 + Math.random() * 150 + (powerPercent * 50);
+            // Keeper has slightly more time to react on long shots
+            const reactionDelay = isWorldieAttempt
+                ? 80 + Math.random() * 100 + (powerPercent * 30)
+                : 100 + Math.random() * 150 + (powerPercent * 50);
+
             setTimeout(() => {
                 if (gameState === 'shooting') {
                     const predictedY = ball.y + ball.velocityY * ((alisson.x - ball.x) / ball.velocityX);
-                    alisson.targetY = predictedY;
+                    // Keeper may misjudge curving long shots
+                    const curveEffect = isWorldieAttempt ? ball.curve * 40 : 0;
+                    alisson.targetY = predictedY + curveEffect;
                     alisson.diving = true;
                     alisson.diveDirection = predictedY > alisson.y ? 1 : -1;
                 }
@@ -1499,13 +1528,17 @@
             // Calculate combo multiplier (max 5x)
             comboMultiplier = Math.min(5, 1 + Math.floor(currentStreak / 2));
 
-            // Base points with combo multiplier
-            const basePoints = level.suddenDeath ? 15 : 10;
+            // Check for worldie goal (long-range screamer)
+            const isWorldie = isWorldieAttempt && !level.freeKick;
+            if (isWorldie) worldieGoalScored = true;
+
+            // Base points with combo multiplier - worldies get 2x bonus!
+            const basePoints = level.suddenDeath ? 15 : (isWorldie ? 20 : 10);
             const goalPoints = basePoints * comboMultiplier;
             totalScore += goalPoints;
 
-            // Screen shake on goal!
-            screenShake = 10;
+            // Screen shake on goal! Worldies shake more!
+            screenShake = isWorldie ? 20 : 10;
             lastGoalTime = Date.now();
 
             document.getElementById('goals').textContent = levelGoals;
@@ -1514,9 +1547,13 @@
             const isFreeKick = level.freeKick;
             const isSuddenDeath = level.suddenDeath;
 
-            // Dynamic message based on streak
+            // Dynamic message based on streak and worldie
             let message = '';
-            if (currentStreak >= 5) {
+            if (isWorldie) {
+                // Worldie gets special treatment!
+                message = `🚀 ${randomMessage(worldieMessages)} +${goalPoints}pts`;
+                if (comboMultiplier > 1) message += ` (${comboMultiplier}x)`;
+            } else if (currentStreak >= 5) {
                 message = `🔥 ON FIRE! ${currentStreak} IN A ROW! +${goalPoints}pts (${comboMultiplier}x)`;
             } else if (currentStreak >= 3) {
                 message = `⚡ STREAK x${currentStreak}! +${goalPoints}pts (${comboMultiplier}x)`;
@@ -2331,11 +2368,38 @@
 
         function drawCelebration() {
             if (gameState === 'celebrating') {
-                ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                for (let i = 0; i < 20; i++) {
-                    ctx.fillStyle = ['#c8102e', '#ffd700', '#fff'][Math.floor(Math.random() * 3)];
-                    ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 8, 8);
+                if (worldieGoalScored) {
+                    // WORLDIE celebration - more intense!
+                    ctx.fillStyle = 'rgba(255, 100, 0, 0.4)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    // More confetti for worldies
+                    for (let i = 0; i < 40; i++) {
+                        ctx.fillStyle = ['#ff4500', '#ffd700', '#fff', '#ff0'][Math.floor(Math.random() * 4)];
+                        const size = 6 + Math.random() * 10;
+                        ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, size, size);
+                    }
+
+                    // "WHAT A GOAL!" text effect
+                    const time = Date.now() * 0.01;
+                    ctx.save();
+                    ctx.translate(canvas.width / 2, 80);
+                    ctx.rotate(Math.sin(time) * 0.05);
+                    ctx.font = 'bold 36px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#000';
+                    ctx.fillText('WHAT A GOAL!', 2, 2);
+                    ctx.fillStyle = '#ffd700';
+                    ctx.fillText('WHAT A GOAL!', 0, 0);
+                    ctx.restore();
+                } else {
+                    // Normal celebration
+                    ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    for (let i = 0; i < 20; i++) {
+                        ctx.fillStyle = ['#c8102e', '#ffd700', '#fff'][Math.floor(Math.random() * 3)];
+                        ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 8, 8);
+                    }
                 }
             }
         }
@@ -2407,17 +2471,68 @@
                     }
                 }
 
+                // Post/bar hit check (before goal check)
+                if (ball.x >= goal.x - 5 && ball.x <= goal.x + 15 && gameState === 'shooting') {
+                    const topPost = goal.y + goal.postWidth;
+                    const bottomPost = goal.y + goal.height - goal.postWidth;
+
+                    // Crossbar hit (ball near top of goal)
+                    if (ball.y >= goal.y - 10 && ball.y <= topPost + 5) {
+                        ball.velocityX = -ball.velocityX * 0.6;
+                        ball.velocityY = Math.abs(ball.velocityY) * 0.8 + 2;
+                        screenShake = 8;
+                        // Small chance to go in off the bar (lucky bounce)
+                        if (Math.random() < 0.15) {
+                            document.getElementById('message').textContent = 'OFF THE BAR AND IN!!!';
+                            setTimeout(() => handleGoal(), 300);
+                        } else {
+                            document.getElementById('message').textContent = 'OFF THE CROSSBAR!';
+                            setTimeout(() => handleMiss(false), 1200);
+                        }
+                        gameState = 'saved';
+                    }
+                    // Left/right post hit
+                    else if ((ball.y > goal.y - 5 && ball.y <= topPost + 10) ||
+                             (ball.y >= bottomPost - 10 && ball.y < goal.y + goal.height + 5)) {
+                        ball.velocityX = -ball.velocityX * 0.5;
+                        ball.velocityY = (Math.random() - 0.5) * 6;
+                        screenShake = 6;
+                        // Small chance to go in off the post
+                        if (Math.random() < 0.12) {
+                            document.getElementById('message').textContent = 'OFF THE POST AND IN!!!';
+                            setTimeout(() => handleGoal(), 300);
+                        } else {
+                            document.getElementById('message').textContent = 'OFF THE POST!';
+                            setTimeout(() => handleMiss(false), 1200);
+                        }
+                        gameState = 'saved';
+                    }
+                }
+
                 // Goal check
                 if (ball.x >= goal.x && ball.y > goal.y + goal.postWidth && ball.y < goal.y + goal.height - goal.postWidth) {
                     if (gameState === 'shooting') handleGoal();
                 }
 
-                // Save check
-                if (ball.x > alisson.x - 20 && ball.x < alisson.x + alisson.width + 20 &&
-                    ball.y > alisson.y - 10 && ball.y < alisson.y + alisson.height + 20) {
+                // Save check - tighter collision so ball must actually touch keeper
+                const ballRadius = ball.radius || 8;
+                const keeperHitBox = {
+                    left: alisson.x - 5,
+                    right: alisson.x + alisson.width + 5,
+                    top: alisson.y - 5,
+                    bottom: alisson.y + alisson.height + 5
+                };
+
+                if (ball.x + ballRadius > keeperHitBox.left &&
+                    ball.x - ballRadius < keeperHitBox.right &&
+                    ball.y + ballRadius > keeperHitBox.top &&
+                    ball.y - ballRadius < keeperHitBox.bottom) {
                     if (gameState === 'shooting') {
-                        ball.velocityX = -ball.velocityX * 0.5;
-                        ball.velocityY = (Math.random() - 0.5) * 5;
+                        // Ball definitely touches keeper - make save visual
+                        ball.x = alisson.x + alisson.width / 2;
+                        ball.y = alisson.y + alisson.height / 2;
+                        ball.velocityX = -ball.velocityX * 0.4;
+                        ball.velocityY = (Math.random() - 0.5) * 4;
                         handleMiss(true);
                     }
                 }
@@ -2435,7 +2550,8 @@
             if (alisson.diving) {
                 alisson.diveFrame++;
                 const targetY = Math.max(goal.y, Math.min(goal.y + goal.height - alisson.height, alisson.targetY));
-                alisson.y += (targetY - alisson.y) * 0.15;
+                // Slower dive speed so more goals go in (was 0.15)
+                alisson.y += (targetY - alisson.y) * 0.12;
             } else if (gameState === 'playing') {
                 const targetY = ball.y - alisson.height / 2;
                 const clampedTarget = Math.max(goal.y, Math.min(goal.y + goal.height - alisson.height, targetY));
