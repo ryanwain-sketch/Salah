@@ -792,7 +792,8 @@
         };
 
         // Goal
-        const goal = { x: 740, y: 150, width: 50, height: 200, postWidth: 8 };
+        // Goal - positioned for face-on view effect
+        const goal = { x: 740, y: 130, width: 50, height: 240, postWidth: 10 };
 
         // Shot power
         let shotCharging = false;
@@ -1505,19 +1506,20 @@
 
             const powerPercent = power / maxShotPower;
             const basePower = 10 + powerPercent * 8;
-            let aimVariance = (Math.random() - 0.5) * 60;
+            // EASIER: Reduced aim variance from 60 to 40
+            let aimVariance = (Math.random() - 0.5) * 40;
 
             // Worldies are harder but have special properties
             if (isWorldieAttempt) {
-                aimVariance *= 1.3; // Slightly less accurate
+                aimVariance *= 1.2; // Slightly less accurate (was 1.3)
                 // Add curve for long range shots (dramatic effect)
                 ball.curve = (Math.random() - 0.5) * 0.15;
             }
 
             let goingOver = false;
-            // Worldies need more power control
-            const overThreshold = isWorldieAttempt ? 0.65 : 0.75;
-            if (powerPercent > overThreshold && Math.random() < (powerPercent - 0.5) * 0.8) {
+            // EASIER: Higher threshold before going over (was 0.75/0.65)
+            const overThreshold = isWorldieAttempt ? 0.72 : 0.82;
+            if (powerPercent > overThreshold && Math.random() < (powerPercent - 0.6) * 0.6) {
                 goingOver = true;
             }
 
@@ -1528,17 +1530,18 @@
             if (!isWorldieAttempt) ball.curve = 0;
 
             const level = levels[currentLevel];
-            // Keeper has slightly more time to react on long shots
+            // EASIER: Longer reaction delay for keeper (gives ball more time)
             const reactionDelay = isWorldieAttempt
-                ? 80 + Math.random() * 100 + (powerPercent * 30)
-                : 100 + Math.random() * 150 + (powerPercent * 50);
+                ? 100 + Math.random() * 120 + (powerPercent * 40)
+                : 130 + Math.random() * 180 + (powerPercent * 60);
 
             setTimeout(() => {
                 if (gameState === 'shooting') {
                     const predictedY = ball.y + ball.velocityY * ((alisson.x - ball.x) / ball.velocityX);
-                    // Keeper may misjudge curving long shots
+                    // EASIER: Keeper misjudges more - add random error
+                    const keeperError = (Math.random() - 0.5) * 30;
                     const curveEffect = isWorldieAttempt ? ball.curve * 40 : 0;
-                    alisson.targetY = predictedY + curveEffect;
+                    alisson.targetY = predictedY + curveEffect + keeperError;
                     alisson.diving = true;
                     alisson.diveDirection = predictedY > alisson.y ? 1 : -1;
                 }
@@ -1909,21 +1912,68 @@
                 ctx.fill();
             }
 
-            // Goal
-            ctx.fillStyle = '#fff';
-            ctx.fillRect(goal.x, goal.y, goal.postWidth, goal.height);
-            ctx.fillRect(goal.x, goal.y, goal.width, goal.postWidth);
-            ctx.fillRect(goal.x, goal.y + goal.height - goal.postWidth, goal.width, goal.postWidth);
+            // Goal - Face-on style with 3D depth effect
+            const goalDepth = 45; // How far back the net goes
 
-            // Net
-            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            // Dark interior (back of goal)
+            ctx.fillStyle = '#1a3d1a';
+            ctx.fillRect(goal.x, goal.y + goal.postWidth, goalDepth, goal.height - goal.postWidth * 2);
+
+            // Net - back panel (darker, smaller squares)
+            ctx.strokeStyle = 'rgba(255,255,255,0.25)';
             ctx.lineWidth = 1;
-            for (let i = goal.y; i < goal.y + goal.height; i += 15) {
-                ctx.beginPath(); ctx.moveTo(goal.x + goal.postWidth, i); ctx.lineTo(goal.x + goal.width, i); ctx.stroke();
+            for (let i = goal.y + goal.postWidth; i < goal.y + goal.height - goal.postWidth; i += 12) {
+                ctx.beginPath();
+                ctx.moveTo(goal.x + 5, i);
+                ctx.lineTo(goal.x + goalDepth - 5, i);
+                ctx.stroke();
             }
-            for (let i = goal.x + goal.postWidth; i < goal.x + goal.width; i += 15) {
-                ctx.beginPath(); ctx.moveTo(i, goal.y); ctx.lineTo(i, goal.y + goal.height); ctx.stroke();
+            for (let i = goal.x + 5; i < goal.x + goalDepth - 5; i += 12) {
+                ctx.beginPath();
+                ctx.moveTo(i, goal.y + goal.postWidth);
+                ctx.lineTo(i, goal.y + goal.height - goal.postWidth);
+                ctx.stroke();
             }
+
+            // Net - side panels (perspective lines going back)
+            ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+            // Top net panel
+            for (let i = 0; i <= goalDepth; i += 10) {
+                ctx.beginPath();
+                ctx.moveTo(goal.x + goalDepth, goal.y + goal.postWidth);
+                ctx.lineTo(goal.x + i, goal.y + goal.postWidth + (goalDepth - i) * 0.3);
+                ctx.stroke();
+            }
+            // Bottom net panel
+            for (let i = 0; i <= goalDepth; i += 10) {
+                ctx.beginPath();
+                ctx.moveTo(goal.x + goalDepth, goal.y + goal.height - goal.postWidth);
+                ctx.lineTo(goal.x + i, goal.y + goal.height - goal.postWidth - (goalDepth - i) * 0.3);
+                ctx.stroke();
+            }
+
+            // Goal frame - white posts (front-facing)
+            ctx.fillStyle = '#fff';
+            ctx.shadowColor = 'rgba(0,0,0,0.3)';
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+
+            // Front post (left side of goal opening)
+            ctx.fillRect(goal.x + goalDepth - 4, goal.y, 10, goal.height);
+
+            // Crossbar (top)
+            ctx.fillRect(goal.x, goal.y, goalDepth + 6, 10);
+
+            // Bottom bar
+            ctx.fillRect(goal.x, goal.y + goal.height - 10, goalDepth + 6, 10);
+
+            // Back post
+            ctx.fillStyle = '#ddd';
+            ctx.fillRect(goal.x, goal.y, 6, goal.height);
+
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
 
             // Lives indicator
             ctx.fillStyle = '#c8102e';
@@ -2666,18 +2716,48 @@
                     ball.y = salah.y + 45;
                 }
 
-                // Defenders chase
-                level.defenders.forEach(defName => {
+                // Defenders with smarter AI - last defender acts as sweeper
+                const defenderCount = level.defenders.length;
+                level.defenders.forEach((defName, index) => {
                     const def = defenders[defName];
                     if (!def) return;
-                    const dx = salah.x - def.x;
-                    const dy = salah.y - def.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist > 5) {
-                        def.x += (dx / dist) * def.speed;
-                        def.y += (dy / dist) * def.speed;
+
+                    // Last defender is the sweeper - stays between Salah and goal
+                    const isSweeper = defenderCount > 1 && index === defenderCount - 1;
+
+                    let targetX, targetY;
+
+                    if (isSweeper) {
+                        // Sweeper positions between Salah and goal, slightly ahead
+                        targetX = Math.min(salah.x + 120, 620); // Stay ahead of Salah but not too close to goal
+                        targetY = salah.y; // Match Salah's Y position
+                        // Move slower as sweeper
+                        const dx = targetX - def.x;
+                        const dy = targetY - def.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist > 10) {
+                            def.x += (dx / dist) * def.speed * 0.6;
+                            def.y += (dy / dist) * def.speed * 0.7;
+                        }
+                    } else {
+                        // Regular defenders chase but with some offset to spread out
+                        const spreadOffset = (index - defenderCount / 2) * 40;
+                        targetX = salah.x;
+                        targetY = salah.y + spreadOffset;
+                        const dx = targetX - def.x;
+                        const dy = targetY - def.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist > 5) {
+                            def.x += (dx / dist) * def.speed;
+                            def.y += (dy / dist) * def.speed;
+                        }
                     }
-                    if (salah.hasBall && dist < def.tackleRange) {
+
+                    // Tackle check
+                    const tackleDistX = salah.x - def.x;
+                    const tackleDistY = salah.y - def.y;
+                    const tackleDist = Math.sqrt(tackleDistX * tackleDistX + tackleDistY * tackleDistY);
+                    if (salah.hasBall && tackleDist < def.tackleRange) {
                         handleTackle(defName);
                     }
                 });
@@ -2742,36 +2822,49 @@
                     }
                 }
 
-                // Goal check
+                // Ball past keeper check - if ball passes keeper, it's goal or wide (no phantom saves)
+                const ballPastKeeper = ball.x > alisson.x + alisson.width;
+
+                // Goal check - ball in goal area
                 if (ball.x >= goal.x && ball.y > goal.y + goal.postWidth && ball.y < goal.y + goal.height - goal.postWidth) {
                     if (gameState === 'shooting') handleGoal();
                 }
-
-                // Save check - tighter collision so ball must actually touch keeper
-                const ballRadius = ball.radius || 8;
-                const keeperHitBox = {
-                    left: alisson.x - 5,
-                    right: alisson.x + alisson.width + 5,
-                    top: alisson.y - 5,
-                    bottom: alisson.y + alisson.height + 5
-                };
-
-                if (ball.x + ballRadius > keeperHitBox.left &&
-                    ball.x - ballRadius < keeperHitBox.right &&
-                    ball.y + ballRadius > keeperHitBox.top &&
-                    ball.y - ballRadius < keeperHitBox.bottom) {
-                    if (gameState === 'shooting') {
-                        // Ball definitely touches keeper - make save visual
-                        ball.x = alisson.x + alisson.width / 2;
-                        ball.y = alisson.y + alisson.height / 2;
-                        ball.velocityX = -ball.velocityX * 0.4;
-                        ball.velocityY = (Math.random() - 0.5) * 4;
-                        handleMiss(true);
+                // Ball past keeper but NOT in goal = wide/miss
+                else if (ballPastKeeper && gameState === 'shooting') {
+                    // Ball went past keeper but missed the goal
+                    if (ball.y <= goal.y + goal.postWidth || ball.y >= goal.y + goal.height - goal.postWidth) {
+                        document.getElementById('message').textContent = 'Wide!';
+                        handleMiss(false);
                     }
                 }
 
-                // Out of bounds
-                if (ball.x > canvas.width || ball.y < 0 || ball.y > canvas.height) {
+                // Save check - ONLY if ball hasn't passed keeper yet
+                if (!ballPastKeeper) {
+                    const ballRadius = ball.radius || 8;
+                    const keeperHitBox = {
+                        left: alisson.x - 3,
+                        right: alisson.x + alisson.width + 3,
+                        top: alisson.y - 3,
+                        bottom: alisson.y + alisson.height + 3
+                    };
+
+                    if (ball.x + ballRadius > keeperHitBox.left &&
+                        ball.x - ballRadius < keeperHitBox.right &&
+                        ball.y + ballRadius > keeperHitBox.top &&
+                        ball.y - ballRadius < keeperHitBox.bottom) {
+                        if (gameState === 'shooting') {
+                            // Ball definitely touches keeper - make save visual
+                            ball.x = alisson.x + alisson.width / 2;
+                            ball.y = alisson.y + alisson.height / 2;
+                            ball.velocityX = -ball.velocityX * 0.4;
+                            ball.velocityY = (Math.random() - 0.5) * 4;
+                            handleMiss(true);
+                        }
+                    }
+                }
+
+                // Out of bounds (top/bottom only - sides handled above)
+                if (ball.x > canvas.width + 50 || ball.y < -20 || ball.y > canvas.height + 20) {
                     if (gameState === 'shooting') handleMiss(false);
                 }
 
@@ -2783,8 +2876,8 @@
             if (alisson.diving) {
                 alisson.diveFrame++;
                 const targetY = Math.max(goal.y, Math.min(goal.y + goal.height - alisson.height, alisson.targetY));
-                // Slower dive speed so more goals go in (was 0.15)
-                alisson.y += (targetY - alisson.y) * 0.12;
+                // EASIER: Even slower dive speed (was 0.12, originally 0.15)
+                alisson.y += (targetY - alisson.y) * 0.09;
             } else if (gameState === 'playing') {
                 const targetY = ball.y - alisson.height / 2;
                 const clampedTarget = Math.max(goal.y, Math.min(goal.y + goal.height - alisson.height, targetY));
